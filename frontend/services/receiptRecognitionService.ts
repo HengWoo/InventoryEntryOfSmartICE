@@ -1,4 +1,5 @@
 // 收货单图片识别服务
+// v4.2 - 改进 fallback 逻辑：Husanai 失败时强制 fallback 到 OpenRouter，添加详细日志
 // v4.1 - 改进纠偏错误处理：区分"无需纠偏"和"纠偏失败"的日志
 // v4.0 - 添加 OpenRouter fallback：Husanai API 失败时自动切换到 OpenRouter
 // v3.0 - 添加二次纠偏层：基于文字图像相似性纠正OCR错误（如"天蒜"→"大蒜"）
@@ -179,7 +180,12 @@ export async function recognizeReceipt(
   mimeType: string,
   databaseMaterials?: Product[]
 ): Promise<ReceiptRecognitionResult | null> {
-  // v4.0: 检查是否至少有一个 API Key 配置
+  // v4.2: 检查 API Key 配置状态
+  console.log('[收货单识别] API 配置状态:', {
+    husanai: HUSANAI_API_KEY ? '已配置' : '未配置',
+    openrouter: OPENROUTER_API_KEY ? '已配置' : '未配置'
+  });
+
   if (!HUSANAI_API_KEY && !OPENROUTER_API_KEY) {
     console.error('[收货单识别] 错误: 未配置任何 API Key');
     throw new Error('收货单识别服务未配置，请联系管理员');
@@ -190,7 +196,7 @@ export async function recognizeReceipt(
   let generatedText: string | null = null;
   let lastError: Error | null = null;
 
-  // v4.0: 先尝试 Husanai，失败后 fallback 到 OpenRouter
+  // v4.2: 先尝试 Husanai，失败后强制 fallback 到 OpenRouter
   if (HUSANAI_API_KEY) {
     try {
       generatedText = await callVisionApi(
@@ -201,33 +207,44 @@ export async function recognizeReceipt(
         mimeType,
         'Husanai'
       );
+      console.log('[收货单识别] Husanai 请求成功');
     } catch (error) {
-      console.warn('[收货单识别] Husanai 请求失败，尝试 OpenRouter fallback:', error);
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.warn('[收货单识别] ⚠️ Husanai 请求失败:', errorMsg);
       lastError = error instanceof Error ? error : new Error(String(error));
+      // 继续尝试 fallback，不在这里抛出错误
     }
   }
 
-  // Fallback: 使用 OpenRouter
-  if (!generatedText && OPENROUTER_API_KEY) {
-    try {
-      console.log('[收货单识别] 切换到 OpenRouter fallback');
-      generatedText = await callVisionApi(
-        OPENROUTER_API_URL,
-        OPENROUTER_API_KEY,
-        OPENROUTER_VISION_MODEL,
-        imageBase64,
-        mimeType,
-        'OpenRouter'
-      );
-    } catch (error) {
-      console.error('[收货单识别] OpenRouter fallback 也失败:', error);
-      lastError = error instanceof Error ? error : new Error(String(error));
+  // v4.2: Fallback 到 OpenRouter（当 Husanai 失败或未配置时）
+  if (!generatedText) {
+    if (OPENROUTER_API_KEY) {
+      console.log('[收货单识别] 🔄 切换到 OpenRouter fallback...');
+      try {
+        generatedText = await callVisionApi(
+          OPENROUTER_API_URL,
+          OPENROUTER_API_KEY,
+          OPENROUTER_VISION_MODEL,
+          imageBase64,
+          mimeType,
+          'OpenRouter'
+        );
+        console.log('[收货单识别] ✅ OpenRouter fallback 成功');
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        console.error('[收货单识别] ❌ OpenRouter fallback 也失败:', errorMsg);
+        lastError = error instanceof Error ? error : new Error(String(error));
+      }
+    } else {
+      console.warn('[收货单识别] ⚠️ OpenRouter 未配置，无法 fallback');
     }
   }
 
   // 两个服务都失败
   if (!generatedText) {
-    throw lastError || new Error('所有识别服务都不可用');
+    const errorMessage = lastError?.message || '所有识别服务都不可用';
+    console.error('[收货单识别] ❌ 所有服务都失败:', errorMessage);
+    throw new Error(`图片识别失败: ${errorMessage}`);
   }
 
   console.log('[收货单识别] 原始响应文本:', generatedText);
