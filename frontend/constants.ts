@@ -467,4 +467,16 @@ export const Icons = {
     React.createElement("path", { strokeLinecap: "round", strokeLinejoin: "round", d: "M5 12c0-3.866 3.134-7 7-7s7 3.134 7 7" }),
     React.createElement("path", { strokeLinecap: "round", strokeLinejoin: "round", d: "M4 12v1c0 2.761 3.582 5 8 5s8-2.239 8-5v-1" }),
     React.createElement("ellipse", { cx: "12", cy: "18", rx: "3", ry: "1" })),
+
+  // v6.0: 备忘录 - 剪贴板图标
+  ClipboardList: ({ className }: { className?: string }) =>
+    React.createElement("svg", {
+      xmlns: "http://www.w3.org/2000/svg",
+      viewBox: "0 0 24 24",
+      fill: "none",
+      strokeWidth: 2,
+      stroke: "currentColor",
+      className: className
+    },
+    React.createElement("path", { strokeLinecap: "round", strokeLinejoin: "round", d: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" })),
 };

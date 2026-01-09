@@ -1,3 +1,4 @@
+// v5.0.0 - 添加上传状态 Banner，显示异步上传进度和结果
 // v4.3.0 - 添加版本检测，每 10 分钟轮询检查新版本并提示用户刷新
 // v4.2.0 - PreloadData 改为登录后加载，不再启动时加载
 // v4.1.0 - 添加 userNickname 支持，用于更亲切的问候语
@@ -8,20 +9,23 @@
 // v3.3.0 - 仪表板数据从数据库获取
 // v3.2.0 - EntryForm 欢迎页传递菜单回调
 // v3.1.0 - 添加登录页面路由
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Dashboard } from './components/Dashboard';
 import { EntryForm } from './components/EntryForm';
 import { LoginPage } from './components/LoginPage';
 import { ChangePasswordPage } from './components/ChangePasswordPage';
 import { QueueHistoryPage } from './components/QueueHistoryPage';
+import { Memo } from './components/Memo';
 import { UpdateBanner } from './components/ui/UpdateBanner';
+import { UploadStatusBanner, UploadStatus } from './components/UploadStatusBanner';
 import { DailyLog, AppView } from './types';
 import { Icons } from './constants';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { PreloadDataProvider, usePreloadData } from './contexts/PreloadDataContext';
 import { getPurchaseLogs } from './services/dashboardService';
 import { startVersionCheck, stopVersionCheck } from './services/versionService';
+import { uploadQueueService, QueueItem } from './services/uploadQueueService';
 
 // 主应用内容（需要在 AuthProvider 内部使用）
 const AppContent: React.FC = () => {
@@ -34,6 +38,9 @@ const AppContent: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   // 版本更新提示状态
   const [showUpdateBanner, setShowUpdateBanner] = useState(false);
+  // v5.0: 上传状态 Banner
+  const [uploadStatus, setUploadStatus] = useState<UploadStatus>(null);
+  const lastQueueIdRef = useRef<string | null>(null);
 
   // 从数据库加载采购记录
   useEffect(() => {
@@ -67,6 +74,54 @@ const AppContent: React.FC = () => {
     return () => {
       stopVersionCheck();
     };
+  }, []);
+
+  // v5.0: 订阅上传队列变化，更新 Banner 状态
+  useEffect(() => {
+    const unsubscribe = uploadQueueService.subscribe((queue: QueueItem[]) => {
+      // 找到最近添加的项目（按 createdAt 排序）
+      const sortedQueue = [...queue].sort((a, b) => b.createdAt - a.createdAt);
+      const latestItem = sortedQueue[0];
+
+      if (!latestItem) {
+        // 队列为空，清除状态
+        if (uploadStatus !== null) {
+          setUploadStatus(null);
+          lastQueueIdRef.current = null;
+        }
+        return;
+      }
+
+      // 只跟踪最新的项目
+      if (lastQueueIdRef.current !== latestItem.id) {
+        lastQueueIdRef.current = latestItem.id;
+      }
+
+      // 根据最新项目的状态更新 Banner
+      if (latestItem.status === 'uploading' || latestItem.status === 'pending') {
+        setUploadStatus('uploading');
+      } else if (latestItem.status === 'success') {
+        setUploadStatus('success');
+      } else if (latestItem.status === 'failed') {
+        setUploadStatus('error');
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [uploadStatus]);
+
+  // v5.0: 处理 Banner 关闭
+  const handleDismissBanner = useCallback(() => {
+    setUploadStatus(null);
+  }, []);
+
+  // v5.0: 处理重试
+  const handleRetryUpload = useCallback(() => {
+    if (lastQueueIdRef.current) {
+      uploadQueueService.retryFailedItem(lastQueueIdRef.current);
+    }
   }, []);
 
   // 从认证上下文获取用户名和昵称
@@ -125,6 +180,15 @@ const AppContent: React.FC = () => {
         onDismiss={() => setShowUpdateBanner(false)}
       />
 
+      {/* v5.0: 上传状态 Banner - 不在历史记录页显示 */}
+      {currentView !== AppView.HISTORY && (
+        <UploadStatusBanner
+          status={uploadStatus}
+          onRetry={handleRetryUpload}
+          onDismiss={handleDismissBanner}
+        />
+      )}
+
       <Sidebar
         currentView={currentView}
         onChangeView={setCurrentView}
@@ -157,6 +221,7 @@ const AppContent: React.FC = () => {
             {currentView === AppView.NEW_ENTRY && <EntryForm onSave={handleSaveEntry} userName={CURRENT_USER_NAME} userNickname={CURRENT_USER_NICKNAME} onOpenMenu={() => setSidebarOpen(true)} />}
             {currentView === AppView.HISTORY && <QueueHistoryPage onBack={() => setCurrentView(AppView.DASHBOARD)} />}
             {currentView === AppView.CHANGE_PASSWORD && <ChangePasswordPage onBack={() => setCurrentView(AppView.DASHBOARD)} />}
+            {currentView === AppView.MEMO && <Memo />}
         </main>
       </div>
     </div>

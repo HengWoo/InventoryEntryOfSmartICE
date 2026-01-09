@@ -64,6 +64,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: AppView.DASHBOARD, label: '工作台', icon: Icons.ChartBar },
     { id: AppView.NEW_ENTRY, label: '开始录入', icon: Icons.PlusCircle },
     { id: AppView.HISTORY, label: '历史记录', icon: Icons.Clock },
+    { id: AppView.MEMO, label: '备忘录', icon: Icons.ClipboardList },
   ];
 
   // 获取头像显示字符：优先使用昵称首字，否则用姓名首字
