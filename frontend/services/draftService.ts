@@ -26,6 +26,7 @@ import * as indexedDB from './indexedDBService';
 export type EntryStep = 'WELCOME' | 'CATEGORY' | 'WORKSHEET' | 'SUMMARY';
 
 // v2.0: 添加图片字段
+// v2.2: 添加 isWastage 损耗模式标记
 export interface EntryDraft {
   step: EntryStep;
   selectedCategory: CategoryType;
@@ -35,6 +36,7 @@ export interface EntryDraft {
   items: ProcurementItem[];
   receiptImages?: AttachedImage[];  // v2.0: 收货单图片
   goodsImages?: AttachedImage[];    // v2.0: 货物图片
+  isWastage?: boolean;              // v2.2: 损耗模式
   savedAt: number;  // 时间戳
 }
 

@@ -27,6 +27,7 @@ export interface AttachedImage {
   compressedSize?: number; // 压缩后大小 (bytes)
 }
 
+// v5.1 - 添加 isWastage 字段支持损耗记录
 // v3.7 - 添加已上传图片 URL 字段，避免 localStorage 存储 base64 导致超限
 // v3.6 - 更新 DailyLog：goodsImages 改为数组支持多张货物照片（称重核对留证）
 // v3.5 - 更新 DailyLog：receiptImages 改为数组支持多张收货单
@@ -46,6 +47,7 @@ export interface DailyLog {
   goodsImages?: AttachedImage[];   // v3.6: 货物图片（多张）- 仅用于 UI 预览
   receiptImageUrls?: string[];     // v3.7: 已上传的收货单 URL（队列存储用）
   goodsImageUrls?: string[];       // v3.7: 已上传的货物图片 URL（队列存储用）
+  isWastage?: boolean;             // v5.1: 是否为损耗记录
 }
 
 export interface ParseResult {
@@ -61,6 +63,20 @@ export enum AppView {
   NEW_ENTRY = 'NEW_ENTRY',
   HISTORY = 'HISTORY',
   CHANGE_PASSWORD = 'CHANGE_PASSWORD',
+  MEMO = 'MEMO',
+}
+
+// 备忘录类型
+export type MemoType = 'inbound' | 'outbound';
+
+export interface Memo {
+  id: string;
+  restaurant_id: string;
+  created_by: string;
+  memo_type: MemoType;
+  content: string;
+  created_at: string;
+  updated_at: string;
 }
 
 // ============ Gemini Design Service Types ============

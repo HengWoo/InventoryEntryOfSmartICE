@@ -1,5 +1,6 @@
 /**
  * QueueHistoryPage - 采购记录页面
+ * v5.2 - 损耗模式支持：编辑页隐藏供应商、列表显示"损耗"、上传成功后自动刷新历史
  * v5.0 - 添加取消上传功能：用户可手动取消卡住的"上传中"记录
  * v4.9 - 修复空白页问题：useEffect 依赖修复 + 错误状态显示 + 重试按钮
  * v4.8 - 显示上传成功状态（修复成功后立即消失的bug）
@@ -23,6 +24,7 @@
  * - 门店隔离：只能查看和删除本门店的记录
  * - 支持显示多张货物照片
  * - 重新上传防止重复点击，自动返回列表并显示上传中状态
+ * - 损耗模式：编辑页隐藏供应商字段，列表显示"损耗"标签
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
@@ -86,15 +88,6 @@ export const QueueHistoryPage: React.FC<QueueHistoryPageProps> = ({ onBack }) =>
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const filterDropdownRef = useRef<HTMLDivElement>(null);
 
-  // 订阅本地队列变化
-  useEffect(() => {
-    setQueue(uploadQueueService.getQueue());
-    const unsubscribe = uploadQueueService.subscribe((newQueue) => {
-      setQueue(newQueue);
-    });
-    return () => unsubscribe();
-  }, []);
-
   // v4.9: 加载历史记录（修复依赖问题）
   const loadHistory = useCallback(async (filter: DateFilterType, currentStoreId?: string) => {
     // v4.9: 使用传入的参数，避免闭包捕获旧值
@@ -115,6 +108,31 @@ export const QueueHistoryPage: React.FC<QueueHistoryPageProps> = ({ onBack }) =>
       setLoadingHistory(false);
     }
   }, []); // v4.9: 移除依赖，使用参数传递
+
+  // 订阅本地队列变化
+  // v5.2: 检测上传成功后自动刷新历史记录
+  const prevQueueRef = useRef<QueueItem[]>([]);
+  useEffect(() => {
+    setQueue(uploadQueueService.getQueue());
+    const unsubscribe = uploadQueueService.subscribe((newQueue) => {
+      // 检测是否有新的成功上传（之前是 pending/uploading，现在是 success）
+      const prevQueue = prevQueueRef.current;
+      const hasNewSuccess = newQueue.some(item =>
+        item.status === 'success' &&
+        prevQueue.find((p: QueueItem) => p.id === item.id)?.status !== 'success'
+      );
+      prevQueueRef.current = newQueue;
+      setQueue(newQueue);
+
+      // 有新成功上传时，延迟刷新历史记录（等待数据库写入完成）
+      if (hasNewSuccess) {
+        setTimeout(() => {
+          loadHistory(dateFilter, storeId);
+        }, 500);
+      }
+    });
+    return () => unsubscribe();
+  }, [dateFilter, storeId, loadHistory]);
 
   // v4.9: 初始加载 + storeId 变化时重新加载
   useEffect(() => {
@@ -169,11 +187,12 @@ export const QueueHistoryPage: React.FC<QueueHistoryPageProps> = ({ onBack }) =>
   // 合并并排序记录
   const unifiedRecords: UnifiedRecord[] = [
     // v4.8: 本地队列（包含成功状态，让用户看到"已上传"后再消失）
+    // v5.2: 损耗模式显示"损耗"而非"未知供应商"
     ...queue
       .map(item => ({
         type: 'queue' as RecordType,
         id: item.id,
-        supplierName: item.data.supplier || '未知供应商',
+        supplierName: item.data.isWastage ? '损耗' : (item.data.supplier || '未知供应商'),
         totalAmount: item.data.totalCost,
         itemCount: item.data.items.length,
         timestamp: item.createdAt,
@@ -498,11 +517,13 @@ const QueueDetailView: React.FC<{
   onDelete: (id: string) => void;
 }> = ({ item, onBack, onDelete }) => {
   const [editedItems, setEditedItems] = useState<ProcurementItem[]>(item.data.items);
-  const [editedSupplier, setEditedSupplier] = useState(item.data.supplier);
+  // v5.2: 损耗模式供应商固定为"损耗"
+  const [editedSupplier, setEditedSupplier] = useState(item.data.isWastage ? '损耗' : item.data.supplier);
   const [editedNotes, setEditedNotes] = useState(item.data.notes || '');
   const [isResubmitting, setIsResubmitting] = useState(false);
 
   const isEditable = item.status === 'failed';
+  const isWastage = item.data.isWastage || false;
 
   // v4.4: 重新上传 - 防止重复点击 + 返回列表显示上传中状态
   const handleResubmit = async () => {
@@ -513,14 +534,14 @@ const QueueDetailView: React.FC<{
 
     const newData = {
       ...item.data,
-      supplier: editedSupplier,
+      supplier: isWastage ? '损耗' : editedSupplier,  // v5.2: 损耗模式固定供应商
       notes: editedNotes,
       items: editedItems,
       totalCost: editedItems.reduce((sum, i) => sum + (i.total || 0), 0),
     };
 
     // 更新队列数据，状态会自动变为 pending，然后队列服务会自动处理上传
-    uploadQueueService.updateQueueItemData(item.id, newData);
+    await uploadQueueService.updateQueueItemData(item.id, newData);
 
     // 立即返回列表页，让用户看到状态变化（pending -> uploading）
     // 不需要 setIsResubmitting(false)，因为马上就离开这个页面了
@@ -577,15 +598,23 @@ const QueueDetailView: React.FC<{
 
         <GlassCard padding="lg" className="mb-4">
           <div className="space-y-4">
-            <div>
-              <label className="text-xs text-muted uppercase tracking-wider mb-2 block">供应商</label>
-              {isEditable ? (
-                <input type="text" value={editedSupplier} onChange={(e) => setEditedSupplier(e.target.value)}
-                  className="w-full px-4 py-3 rounded-glass-lg bg-white/5 border border-white/10 text-white focus:border-ios-blue/50 focus:outline-none" />
-              ) : (
-                <p className="text-lg font-semibold text-primary">{item.data.supplier}</p>
-              )}
-            </div>
+            {/* v5.2: 损耗模式不显示供应商编辑，固定为"损耗" */}
+            {isWastage ? (
+              <div>
+                <label className="text-xs text-muted uppercase tracking-wider mb-2 block">类型</label>
+                <p className="text-lg font-semibold text-ios-orange">损耗记录</p>
+              </div>
+            ) : (
+              <div>
+                <label className="text-xs text-muted uppercase tracking-wider mb-2 block">供应商</label>
+                {isEditable ? (
+                  <input type="text" value={editedSupplier} onChange={(e) => setEditedSupplier(e.target.value)}
+                    className="w-full px-4 py-3 rounded-glass-lg bg-white/5 border border-white/10 text-white focus:border-ios-blue/50 focus:outline-none" />
+                ) : (
+                  <p className="text-lg font-semibold text-primary">{item.data.supplier}</p>
+                )}
+              </div>
+            )}
             {(item.data.notes || isEditable) && (
               <div>
                 <label className="text-xs text-muted uppercase tracking-wider mb-2 block">备注</label>

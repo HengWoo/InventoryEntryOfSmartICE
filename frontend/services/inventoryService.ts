@@ -115,7 +115,8 @@ export async function submitProcurement(
     return result;
   }
 
-  console.log(`[提交] 开始处理 ${validItems.length} 条采购记录`);
+  const recordType = dailyLog.isWastage ? '损耗' : '采购';
+  console.log(`[提交] 开始处理 ${validItems.length} 条${recordType}记录`);
   console.log(`[提交] 门店: ${storeId}, 员工: ${employeeId}`);
 
   // 上传图片
@@ -180,10 +181,15 @@ export async function submitProcurement(
   }
 
   // 匹配供应商
+  // v5.2: 损耗模式跳过供应商匹配，直接使用 "损耗" 作为名称
   let supplierId: number | null = null;
   let supplierName: string | undefined;
 
-  if (dailyLog.supplier && dailyLog.supplier !== '其他') {
+  if (dailyLog.isWastage) {
+    // 损耗模式：不匹配供应商，直接使用 "损耗"
+    supplierName = '损耗';
+    console.log(`[提交] 损耗模式，跳过供应商匹配`);
+  } else if (dailyLog.supplier && dailyLog.supplier !== '其他') {
     const supplier = await matchSupplier(dailyLog.supplier);
     if (supplier) {
       supplierId = supplier.id;
@@ -224,7 +230,8 @@ export async function submitProcurement(
       continue;
     }
 
-    if (!item.unitPrice || item.unitPrice <= 0) {
+    // v5.2: 价格验证仅入库模式需要，损耗模式跳过
+    if (!dailyLog.isWastage && (!item.unitPrice || item.unitPrice <= 0)) {
       result.errors.push(`物品 "${item.name}" 价格无效`);
       continue;
     }
@@ -251,29 +258,32 @@ export async function submitProcurement(
     }
 
     // 构建记录
+    // v5.1: 支持损耗记录（is_wastage=true 时，价格字段为 null）
     // v5.0: restaurant_id 替代 store_id
     // v3.7: 添加 AI 使用统计字段
+    const isWastage = dailyLog.isWastage || false;
     const record: StorePurchasePrice = {
       restaurant_id: storeId,
       created_by: employeeId,
       material_id: materialId,
-      supplier_id: supplierId || undefined,
+      supplier_id: isWastage ? undefined : (supplierId || undefined),
       item_name: item.name,
       quantity: item.quantity || 1,
       unit: item.unit,
-      unit_price: item.unitPrice,
-      total_amount: item.total || (item.quantity * item.unitPrice),
+      unit_price: isWastage ? null : item.unitPrice,
+      total_amount: isWastage ? null : (item.total || (item.quantity * item.unitPrice)),
       // v3.3: 多张收货单图片存为 JSON 数组
       // v3.8: 多张货物图片存为 JSON 数组
       receipt_image: receiptImageUrls.length > 0 ? JSON.stringify(receiptImageUrls) : undefined,
-      goods_image: goodsImageUrls.length > 0 ? JSON.stringify(goodsImageUrls) : undefined,
+      goods_image: isWastage ? undefined : (goodsImageUrls.length > 0 ? JSON.stringify(goodsImageUrls) : undefined),
       price_date: priceDate,
-      supplier_name: supplierName,
-      specification: item.specification || undefined,  // v3.6: 物品规格
+      supplier_name: isWastage ? undefined : supplierName,
+      specification: isWastage ? undefined : (item.specification || undefined),  // v3.6: 物品规格
       notes: dailyLog.notes || undefined,              // v3.6: 整单备注
       status: 'pending',
       use_ai_photo: aiUsage?.useAiPhoto || 0,          // v3.7: AI 识图使用次数
       use_ai_voice: aiUsage?.useAiVoice || 0,          // v3.7: 语音识别使用次数
+      is_wastage: isWastage,                           // v5.1: 损耗标记
     };
 
     records.push(record);

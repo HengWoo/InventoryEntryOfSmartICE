@@ -1,4 +1,5 @@
 // EntryForm - 采购录入表单
+// v7.0 - 损耗模式：添加 Toggle Switch 切换入库/损耗模式，损耗模式隐藏供应商/AI识别/价格字段
 // v6.8 - 修复内存不足问题：提交前先清除草稿，避免草稿+队列双份存储导致 IndexedDB 空间耗尽
 // v6.7 - 修复总价计算错误：total 字段从输入框获取时是字符串，reduce 相加变成拼接而非求和
 // v6.6 - 语音功能暂时禁用：底部语音录入栏隐藏，移除底部预留空间 (pb-40 → pb-8)
@@ -372,6 +373,7 @@ const CategoryScreen: React.FC<{
 // v6.1 - 添加物料名称实时验证功能
 // v5.0 - 添加 selectedCategory prop，员工餐分类特殊处理
 // v4.7 - goodsImages 改为数组，支持多张货物照片（称重核对留证）
+// v7.0 - 添加 isWastage 损耗模式支持
 // v3.5 - receiptImages 改为数组，支持多张收货单，AI识别按钮移至图片下方
 // v3.4 - 修改 props：移除 aiAutoFill 开关，改为 isRecognizing + onAIRecognize 按钮
 // v3.0 - 新增 supplierOther + onSupplierOtherChange，receiptImage + goodsImage
@@ -393,6 +395,8 @@ const WorksheetScreen: React.FC<{
   showTranscription: boolean;
   isSendingTranscription: boolean;
   selectedCategory: string;  // v5.0: 当前选中的分类
+  isWastage: boolean;  // v7.0: 损耗模式
+  onWastageToggle: () => void;  // v7.0: 切换损耗模式
   onBack: () => void;
   onSupplierChange: (val: string) => void;
   onSupplierOtherChange: (val: string) => void;
@@ -414,7 +418,7 @@ const WorksheetScreen: React.FC<{
 }> = ({
   items, supplier, supplierOther, notes, isAnalyzing, isRecognizing, grandTotal, receiptImages, goodsImages,
   voiceStatus, voiceMessage, transcriptionText, showTranscription, isSendingTranscription, selectedCategory,
-  materialValidationErrors, onMaterialNameBlur,
+  materialValidationErrors, onMaterialNameBlur, isWastage, onWastageToggle,
   onBack, onSupplierChange, onSupplierOtherChange, onNotesChange, onItemChange, onProductSelect, onAddItem, onRemoveItem,
   onReceiptImageUpload, onGoodsImageUpload, onRemoveReceiptImage, onRemoveGoodsImage, onAIRecognize,
   onVoiceStart, onVoiceStop, onTranscriptionChange, onSendTranscription, onReview
@@ -456,13 +460,31 @@ const WorksheetScreen: React.FC<{
             <Icons.ArrowLeft className="w-5 h-5" />
             <span className="text-sm font-medium">返回</span>
          </button>
-         <div className="px-4 py-1.5 rounded-full border border-white/10 text-sm font-mono text-white font-bold"
-              style={{
-                background: 'rgba(30, 30, 35, 0.6)',
-                backdropFilter: 'blur(20px)',
-                WebkitBackdropFilter: 'blur(20px)'
-              }}>
-            ¥{(Number(grandTotal) || 0).toFixed(2)}
+         {/* v7.0: 损耗模式下隐藏总价，显示 Toggle Switch */}
+         <div className="flex items-center gap-3">
+           {/* v7.0: 损耗模式 Toggle Switch - 员工餐模式下不显示 */}
+           {!isStaffMealMode && (
+             <button
+               onClick={onWastageToggle}
+               className="flex items-center gap-2"
+             >
+               <span className={`text-sm ${isWastage ? 'text-ios-orange' : 'text-white/50'}`}>损耗</span>
+               <div className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${isWastage ? 'bg-ios-orange' : 'bg-white/20'}`}>
+                 <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-md transition-transform duration-200 ${isWastage ? 'translate-x-5' : 'translate-x-0'}`} />
+               </div>
+             </button>
+           )}
+           {/* 总价显示 - 损耗模式下隐藏 */}
+           {!isWastage && (
+             <div className="px-4 py-1.5 rounded-full border border-white/10 text-sm font-mono text-white font-bold"
+                  style={{
+                    background: 'rgba(30, 30, 35, 0.6)',
+                    backdropFilter: 'blur(20px)',
+                    WebkitBackdropFilter: 'blur(20px)'
+                  }}>
+                ¥{(Number(grandTotal) || 0).toFixed(2)}
+             </div>
+           )}
          </div>
       </div>
 
@@ -474,6 +496,52 @@ const WorksheetScreen: React.FC<{
         <GlassCard padding="md" className="space-y-4" style={{ zIndex: 100 }}>
           {/* 图片上传区 - 收货单支持多张，AI识别按钮移至下方 */}
           <div className="space-y-3">
+            {/* v7.0: 损耗模式下显示简化的图片上传（可选），入库模式显示收货单+货物照片 */}
+            {isWastage ? (
+              /* 损耗模式：单一图片上传区（可选） */
+              <div>
+                <label className="block text-[20px] tracking-wider text-zinc-500 font-bold mb-2 ml-1">
+                  损耗称重照片 <span className="text-zinc-600 text-sm">(可选)</span>
+                </label>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {receiptImages.map((img, index) => (
+                    <div key={img.id} className="relative group">
+                      <img
+                        src={`data:${img.mimeType};base64,${img.thumbnail || img.data}`}
+                        alt={`损耗称重照片 ${index + 1}`}
+                        className="w-16 h-16 object-cover rounded-lg border border-white/15"
+                        style={{ boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)' }}
+                      />
+                      <button
+                        onClick={() => onRemoveReceiptImage(index)}
+                        className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500/90 rounded-full flex items-center justify-center transition-all hover:bg-red-500 border border-[#1a1a1f]"
+                      >
+                        <Icons.X className="w-3 h-3 text-white" />
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    onClick={() => receiptInputRef.current?.click()}
+                    disabled={isAnalyzing}
+                    className="w-16 h-16 rounded-lg border-2 border-dashed border-white/20 hover:border-white/40 bg-white/5 hover:bg-white/10 flex flex-col items-center justify-center gap-0.5 transition-all active:scale-95 disabled:opacity-40"
+                  >
+                    <Icons.Plus className="w-5 h-5 text-white/50" />
+                    <span className="text-[9px] text-white/40">添加</span>
+                  </button>
+                </div>
+                <input
+                  type="file"
+                  ref={receiptInputRef}
+                  onChange={onReceiptImageUpload}
+                  accept="image/*"
+                  multiple
+                  className="absolute opacity-0 w-0 h-0 pointer-events-none"
+                  aria-label="上传损耗称重照片"
+                />
+              </div>
+            ) : (
+              /* 入库模式：收货单 + 货物照片 */
+              <>
             {/* 收货单图片（多张）- 必填 */}
             <div>
               <label className="block text-[20px] tracking-wider text-zinc-500 font-bold mb-2 ml-1">
@@ -623,59 +691,66 @@ const WorksheetScreen: React.FC<{
                 aria-label="上传货物照片"
               />
             </div>
+              </>
+            )}
           </div>
 
           {/* 供应商选择 + "其他"选项 */}
           {/* v5.0: 员工餐模式下显示固定供应商文本 */}
-          <div>
-            <div className="flex items-center justify-between mb-2 ml-1">
-              <label className="text-[20px] tracking-wider text-zinc-500 font-bold">
-                供应商全称
-              </label>
-              {!isStaffMealMode && supplier && (
-                <button
-                  type="button"
-                  onClick={() => onSupplierChange('')}
-                  className="w-6 h-6 rounded-full flex items-center justify-center text-white/40 hover:text-ios-red hover:bg-ios-red/10 transition-all"
-                  title="清除供应商"
-                >
-                  <Icons.X className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-            {isStaffMealMode ? (
-              <div className="w-full py-3 px-4 rounded-lg bg-white/5 border border-white/10">
-                <span className="text-sm text-white/60">员工餐</span>
+          {/* v7.0: 损耗模式下隐藏供应商选择 */}
+          {!isWastage && (
+            <>
+              <div>
+                <div className="flex items-center justify-between mb-2 ml-1">
+                  <label className="text-[20px] tracking-wider text-zinc-500 font-bold">
+                    供应商全称
+                  </label>
+                  {!isStaffMealMode && supplier && (
+                    <button
+                      type="button"
+                      onClick={() => onSupplierChange('')}
+                      className="w-6 h-6 rounded-full flex items-center justify-center text-white/40 hover:text-ios-red hover:bg-ios-red/10 transition-all"
+                      title="清除供应商"
+                    >
+                      <Icons.X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+                {isStaffMealMode ? (
+                  <div className="w-full py-3 px-4 rounded-lg bg-white/5 border border-white/10">
+                    <span className="text-sm text-white/60">员工餐</span>
+                  </div>
+                ) : (
+                  <AutocompleteInput
+                    value={supplier}
+                    onChange={onSupplierChange}
+                    placeholder="输入供应商名称或选择'其他'"
+                    searchFn={searchSuppliers}
+                    debounceMs={300}
+                    minChars={1}
+                    extraOptions={[{ id: 'other', label: '其他', value: '其他', sublabel: '手动输入供应商' }]}
+                    showDropdownButton={true}
+                    getAllOptionsFn={getAllSuppliersAsOptions}
+                    strictSelection={true}
+                  />
+                )}
               </div>
-            ) : (
-              <AutocompleteInput
-                value={supplier}
-                onChange={onSupplierChange}
-                placeholder="输入供应商名称或选择'其他'"
-                searchFn={searchSuppliers}
-                debounceMs={300}
-                minChars={1}
-                extraOptions={[{ id: 'other', label: '其他', value: '其他', sublabel: '手动输入供应商' }]}
-                showDropdownButton={true}
-                getAllOptionsFn={getAllSuppliersAsOptions}
-                strictSelection={true}
-              />
-            )}
-          </div>
-          {/* "其他"供应商输入框 - 仅当选择"其他"时显示，新供应商自动入库 */}
-          {!isStaffMealMode && supplier === '其他' && (
-            <div className="animate-slide-in">
-              <label className="block text-[16px] tracking-wider text-zinc-500 font-bold mb-2 ml-1">
-                请输入供应商名称
-              </label>
-              <input
-                type="text"
-                value={supplierOther}
-                onChange={(e) => onSupplierOtherChange(e.target.value)}
-                placeholder="供货商将会被添加到数据库，下次直接选择即可"
-                className="glass-input w-full py-3"
-              />
-            </div>
+              {/* "其他"供应商输入框 - 仅当选择"其他"时显示，新供应商自动入库 */}
+              {!isStaffMealMode && supplier === '其他' && (
+                <div className="animate-slide-in">
+                  <label className="block text-[16px] tracking-wider text-zinc-500 font-bold mb-2 ml-1">
+                    请输入供应商名称
+                  </label>
+                  <input
+                    type="text"
+                    value={supplierOther}
+                    onChange={(e) => onSupplierOtherChange(e.target.value)}
+                    placeholder="供货商将会被添加到数据库，下次直接选择即可"
+                    className="glass-input w-full py-3"
+                  />
+                </div>
+              )}
+            </>
           )}
 
           <div>
@@ -761,9 +836,10 @@ const WorksheetScreen: React.FC<{
 
                  {/* Grid Row: Data Inputs */}
                  {/* v5.0: 员工餐模式下简化布局（移除规格和单位列，因为不需要显示） */}
-                 <div className={`grid gap-2 ${isStaffMealMode ? 'grid-cols-9' : 'grid-cols-12'}`}>
-                    {/* Packaging - v5.0: 员工餐模式下隐藏 */}
-                    {!isStaffMealMode && (
+                 {/* v7.0: 损耗模式下只显示单位和数量（4列） */}
+                 <div className={`grid gap-2 ${isWastage ? 'grid-cols-4' : isStaffMealMode ? 'grid-cols-9' : 'grid-cols-12'}`}>
+                    {/* Packaging - v5.0: 员工餐模式下隐藏, v7.0: 损耗模式下隐藏 */}
+                    {!isStaffMealMode && !isWastage && (
                       <div className="col-span-3">
                           <label className="block text-[9px] text-muted mb-1 text-center">规格</label>
                           <input
@@ -776,7 +852,7 @@ const WorksheetScreen: React.FC<{
                       </div>
                     )}
                     {/* Unit - v5.0: 员工餐模式下显示固定"天"文本 */}
-                    <div className={isStaffMealMode ? 'col-span-2' : 'col-span-2'}>
+                    <div className="col-span-2">
                         <label className="block text-[9px] text-muted mb-1 text-center">单位</label>
                         {isStaffMealMode ? (
                           <div className="w-full bg-white/5 border border-white/10 rounded-glass-sm py-2 text-center text-sm text-white/60">
@@ -793,7 +869,7 @@ const WorksheetScreen: React.FC<{
                         )}
                     </div>
                     {/* Qty - v5.0: 员工餐模式下固定为1 */}
-                    <div className={isStaffMealMode ? 'col-span-2' : 'col-span-2'}>
+                    <div className="col-span-2">
                         <label className="block text-[9px] text-muted mb-1 text-center">数量</label>
                         {isStaffMealMode ? (
                           <div className="w-full bg-white/5 border border-white/10 rounded-glass-sm py-2 text-center text-sm text-white/60">
@@ -801,7 +877,8 @@ const WorksheetScreen: React.FC<{
                           </div>
                         ) : (
                           <input
-                              type="number"
+                              type="text"
+                              inputMode="decimal"
                               value={item.quantity || ''}
                               onChange={(e) => onItemChange(index, 'quantity', e.target.value)}
                               placeholder="数量"
@@ -809,28 +886,32 @@ const WorksheetScreen: React.FC<{
                           />
                         )}
                     </div>
-                    {/* Price */}
-                    <div className={isStaffMealMode ? 'col-span-2' : 'col-span-2'}>
-                        <label className="block text-[9px] text-muted mb-1 text-center">单价</label>
-                        <input
-                            type="number"
-                            value={item.unitPrice || ''}
-                            onChange={(e) => onItemChange(index, 'unitPrice', e.target.value)}
-                            placeholder="单价"
-                            className="w-full bg-cacao-husk/60 border border-[rgba(138,75,47,0.3)] rounded-glass-sm py-2 text-center text-sm text-primary font-medium outline-none focus:border-ember-rock/50 placeholder:text-white/40"
-                        />
-                    </div>
-                    {/* Subtotal - v2.1: 可编辑，支持输入总价反算单价 */}
-                    <div className={isStaffMealMode ? 'col-span-3' : 'col-span-3'}>
-                        <label className="block text-[9px] text-muted mb-1 text-center">总价</label>
-                        <input
-                            type="number"
-                            value={item.total || ''}
-                            onChange={(e) => onItemChange(index, 'total', e.target.value)}
-                            placeholder="总价"
-                            className="w-full bg-ember-rock/20 border border-ember-rock/30 rounded-glass-sm py-2 text-center text-sm font-bold text-ember-rock outline-none focus:border-ember-rock/50 placeholder:text-ember-rock/40"
-                        />
-                    </div>
+                    {/* Price - v7.0: 损耗模式下隐藏 */}
+                    {!isWastage && (
+                      <div className={isStaffMealMode ? 'col-span-2' : 'col-span-2'}>
+                          <label className="block text-[9px] text-muted mb-1 text-center">单价</label>
+                          <input
+                              type="number"
+                              value={item.unitPrice || ''}
+                              onChange={(e) => onItemChange(index, 'unitPrice', e.target.value)}
+                              placeholder="单价"
+                              className="w-full bg-cacao-husk/60 border border-[rgba(138,75,47,0.3)] rounded-glass-sm py-2 text-center text-sm text-primary font-medium outline-none focus:border-ember-rock/50 placeholder:text-white/40"
+                          />
+                      </div>
+                    )}
+                    {/* Subtotal - v2.1: 可编辑，支持输入总价反算单价, v7.0: 损耗模式下隐藏 */}
+                    {!isWastage && (
+                      <div className={isStaffMealMode ? 'col-span-3' : 'col-span-3'}>
+                          <label className="block text-[9px] text-muted mb-1 text-center">总价</label>
+                          <input
+                              type="number"
+                              value={item.total || ''}
+                              onChange={(e) => onItemChange(index, 'total', e.target.value)}
+                              placeholder="总价"
+                              className="w-full bg-ember-rock/20 border border-ember-rock/30 rounded-glass-sm py-2 text-center text-sm font-bold text-ember-rock outline-none focus:border-ember-rock/50 placeholder:text-ember-rock/40"
+                          />
+                      </div>
+                    )}
                  </div>
               </GlassCard>
             ))}
@@ -1059,6 +1140,7 @@ const TranscriptionBox: React.FC<{
 
 // --- Summary Screen (Receipt Style) ---
 // v3.2: 添加进度状态和成功界面
+// v7.0: 添加双按钮导航（返回首页/继续录入）
 
 const SummaryScreen: React.FC<{
   items: ProcurementItem[];
@@ -1072,9 +1154,11 @@ const SummaryScreen: React.FC<{
   countdown: number;
   onBack: () => void;
   onConfirm: () => void;
-  onImmediateReturn: () => void;
-}> = ({ items, supplier, notes, grandTotal, isSubmitting, submitMessage, submitError, submitProgress, countdown, onBack, onConfirm, onImmediateReturn }) => {
+  onReturnHome: () => void;
+  onContinueEntry: () => void;
+}> = ({ items, supplier, notes, grandTotal, isSubmitting, submitMessage, submitError, submitProgress, countdown, onBack, onConfirm, onReturnHome, onContinueEntry }) => {
   // v3.2: 成功界面 - 全屏覆盖
+  // v7.0: 倒计时改为 5 秒，双按钮导航
   if (submitProgress === 'success' && countdown > 0) {
     return (
       <div className="h-full flex flex-col items-center justify-center animate-slide-in px-6">
@@ -1095,22 +1179,31 @@ const SummaryScreen: React.FC<{
 
         {/* 倒计时 */}
         <div className="text-center mb-8">
-          <p className="text-muted text-sm mb-2">{countdown} 秒后自动返回</p>
+          <p className="text-muted text-sm mb-2">{countdown} 秒后自动返回首页</p>
           <div className="w-48 h-1 bg-white/10 rounded-full overflow-hidden">
             <div
               className="h-full bg-ios-green rounded-full transition-all duration-1000 ease-linear"
-              style={{ width: `${(countdown / 3) * 100}%` }}
+              style={{ width: `${(countdown / 5) * 100}%` }}
             />
           </div>
         </div>
 
-        {/* 立即返回按钮 */}
-        <button
-          onClick={onImmediateReturn}
-          className="px-8 py-3 rounded-full bg-white/10 border border-white/20 text-white text-base font-medium transition-all hover:bg-white/20 active:scale-95"
-        >
-          立即返回
-        </button>
+        {/* v7.0: 双按钮导航 - 返回首页(左) / 继续录入(右) */}
+        <div className="flex gap-4">
+          <button
+            onClick={onReturnHome}
+            className="px-6 py-3 rounded-full bg-white/10 border border-white/20 text-white text-base font-medium transition-all hover:bg-white/20 active:scale-95"
+          >
+            返回首页
+          </button>
+          <button
+            onClick={onContinueEntry}
+            className="px-6 py-3 rounded-full bg-ios-blue text-white text-base font-semibold transition-all hover:opacity-90 active:scale-95"
+            style={{ boxShadow: '0 4px 20px rgba(91, 163, 192, 0.4)' }}
+          >
+            继续录入
+          </button>
+        </div>
       </div>
     );
   }
@@ -1263,6 +1356,7 @@ export const EntryForm: React.FC<EntryFormProps> = ({ onSave, userName, userNick
 
   const [step, setStep] = useState<EntryStep>('WELCOME');
   const [selectedCategory, setSelectedCategory] = useState<CategoryType>('');
+  const [isWastage, setIsWastage] = useState(false);  // v7.0: 损耗模式开关
   const [supplier, setSupplier] = useState('');
   const [supplierOther, setSupplierOther] = useState('');  // v3.0: "其他"供应商名称
   const [notes, setNotes] = useState('');
@@ -1519,8 +1613,9 @@ export const EntryForm: React.FC<EntryFormProps> = ({ onSave, userName, userNick
       items,
       receiptImages,  // v5.9: 保存收货单图片
       goodsImages,    // v5.9: 保存货物图片
+      isWastage,      // v5.2: 保存损耗模式状态
     });
-  }, [step, selectedCategory, supplier, supplierOther, notes, items, receiptImages, goodsImages, submitProgress]);
+  }, [step, selectedCategory, supplier, supplierOther, notes, items, receiptImages, goodsImages, isWastage, submitProgress]);
 
   // v5.9: 点击"开始录入"时检测草稿（异步）
   const handleStartEntry = async () => {
@@ -1547,6 +1642,8 @@ export const EntryForm: React.FC<EntryFormProps> = ({ onSave, userName, userNick
       // v5.9: 恢复图片
       setReceiptImages(draft.receiptImages || []);
       setGoodsImages(draft.goodsImages || []);
+      // v5.2: 恢复损耗模式状态
+      setIsWastage(draft.isWastage || false);
       // 根据草稿步骤决定跳转位置
       if (draft.step === 'SUMMARY') {
         setStep('SUMMARY');
@@ -1584,9 +1681,30 @@ export const EntryForm: React.FC<EntryFormProps> = ({ onSave, userName, userNick
     setStep('WORKSHEET');
   };
 
+  // v7.0: 损耗模式切换 - 切换时清空表单
+  const handleWastageToggle = () => {
+    setIsWastage(prev => !prev);
+    // 清空表单数据
+    setSupplier('');
+    setSupplierOther('');
+    setItems([{ name: '', specification: '', quantity: 0, unit: '', unitPrice: 0, total: 0 }]);
+    setReceiptImages([]);
+    setGoodsImages([]);
+    setMaterialValidationErrors({});
+  };
+
   const handleItemChange = (index: number, field: keyof ProcurementItem, value: any) => {
     const newItems = [...items];
-    const updatedItem = { ...newItems[index], [field]: value };
+
+    // v5.3: 数字字段输入清洗 - 中文句号转英文小数点
+    let cleanedValue = value;
+    if (field === 'quantity' || field === 'unitPrice' || field === 'total') {
+      if (typeof value === 'string') {
+        cleanedValue = value.replace(/。/g, '.');  // 中文句号 → 英文小数点
+      }
+    }
+
+    const updatedItem = { ...newItems[index], [field]: cleanedValue };
 
     // v3.1: 手动输入名称时清除之前选择的 productId（因为名称变了）
     // v6.3: 确保清除 productId 和验证错误，防止状态不同步
@@ -1938,50 +2056,55 @@ export const EntryForm: React.FC<EntryFormProps> = ({ onSave, userName, userNick
 
   const handleWorksheetSubmit = async () => {
     // v4.1: 完整表单验证 - 图片、供应商、物品、单位、产品名称
+    // v5.2: 损耗模式跳过图片、供应商、价格验证
 
-    // 1. 图片必填验证
-    if (receiptImages.length === 0) {
-        alert('请上传收货单照片（必填）');
-        return;
+    // 1. 图片必填验证（仅入库模式）
+    if (!isWastage) {
+      if (receiptImages.length === 0) {
+          alert('请上传收货单照片（必填）');
+          return;
+      }
+
+      // v4.7: 货物照片改为数组
+      if (goodsImages.length === 0) {
+          alert('请上传货物照片（必填）');
+          return;
+      }
     }
 
-    // v4.7: 货物照片改为数组
-    if (goodsImages.length === 0) {
-        alert('请上传货物照片（必填）');
-        return;
-    }
+    // 2. 供应商必填验证（仅入库模式）
+    if (!isWastage) {
+      if (!supplier || supplier.trim() === '') {
+          alert('请选择或输入供应商（必填）');
+          return;
+      }
 
-    // 2. 供应商必填验证
-    if (!supplier || supplier.trim() === '') {
-        alert('请选择或输入供应商（必填）');
-        return;
-    }
+      // v5.5: "其他"供应商名称保护 - 防止输入保留字或已存在的供应商
+      if (supplier === '其他') {
+          const trimmedOther = supplierOther.trim();
 
-    // v5.5: "其他"供应商名称保护 - 防止输入保留字或已存在的供应商
-    if (supplier === '其他') {
-        const trimmedOther = supplierOther.trim();
+          // 2a. 必须输入供应商名称
+          if (!trimmedOther) {
+              alert('请输入新供应商名称');
+              return;
+          }
 
-        // 2a. 必须输入供应商名称
-        if (!trimmedOther) {
-            alert('请输入新供应商名称');
-            return;
-        }
+          // 2b. 保留字检查
+          const reservedNames = ['其他', '其它', '员工餐'];
+          if (reservedNames.includes(trimmedOther)) {
+              alert(`"${trimmedOther}" 是系统保留名称，请输入真实的供应商名称`);
+              return;
+          }
 
-        // 2b. 保留字检查
-        const reservedNames = ['其他', '其它', '员工餐'];
-        if (reservedNames.includes(trimmedOther)) {
-            alert(`"${trimmedOther}" 是系统保留名称，请输入真实的供应商名称`);
-            return;
-        }
-
-        // 2c. 已存在供应商检查（从预加载数据中获取）
-        const existingSupplier = suppliers.find(
-            s => s.name.toLowerCase() === trimmedOther.toLowerCase()
-        );
-        if (existingSupplier) {
-            alert(`供应商 "${trimmedOther}" 已存在，请返回从列表中选择`);
-            return;
-        }
+          // 2c. 已存在供应商检查（从预加载数据中获取）
+          const existingSupplier = suppliers.find(
+              s => s.name.toLowerCase() === trimmedOther.toLowerCase()
+          );
+          if (existingSupplier) {
+              alert(`供应商 "${trimmedOther}" 已存在，请返回从列表中选择`);
+              return;
+          }
+      }
     }
 
     // 3. 检查是否有物品
@@ -2012,12 +2135,14 @@ export const EntryForm: React.FC<EntryFormProps> = ({ onSave, userName, userNick
         return;
     }
 
-    // 5. 检查是否有价格为空或为0
-    const invalidPriceItems = validItems.filter(i => !i.unitPrice || i.unitPrice <= 0);
-    if (invalidPriceItems.length > 0) {
-        const names = invalidPriceItems.map(i => i.name).join('、');
-        alert(`请填写单价（以下物品单价无效：${names}）`);
-        return;
+    // 5. 检查是否有价格为空或为0（仅入库模式）
+    if (!isWastage) {
+      const invalidPriceItems = validItems.filter(i => !i.unitPrice || i.unitPrice <= 0);
+      if (invalidPriceItems.length > 0) {
+          const names = invalidPriceItems.map(i => i.name).join('、');
+          alert(`请填写单价（以下物品单价无效：${names}）`);
+          return;
+      }
     }
 
     // 6. 检查是否有数量为空或为0
@@ -2118,7 +2243,7 @@ ${productList}
     const logData: Omit<DailyLog, 'id'> = {
       date: new Date().toISOString(),
       category: selectedCategory,
-      supplier: supplier || '未知供应商',
+      supplier: isWastage ? '损耗' : (supplier || '未知供应商'),
       supplierOther: supplier === '其他' ? supplierOther : undefined,
       items: validItems,
       totalCost: calculateGrandTotal(),
@@ -2126,6 +2251,7 @@ ${productList}
       status: 'Stocked',
       receiptImages: compressedReceiptImages,
       goodsImages: compressedGoodsImages,
+      isWastage: isWastage,  // v5.2: 损耗标记
     };
 
     // v4.6: 构建 AI 使用统计
@@ -2152,11 +2278,12 @@ ${productList}
         console.log(`[队列] 任务已加入队列: ${queueId}, brand_id: ${user?.brand_id}`);
 
         // 显示成功提示
+        // v7.0: 倒计时改为 5 秒
         setSubmitProgress('success');
         setSubmitMessage('已提交，可在上传记录中查看状态');
-        setCountdown(2);
+        setCountdown(5);
 
-        // 2 秒后返回
+        // v7.0: 5 秒后默认返回仪表板
         countdownIntervalRef.current = setInterval(() => {
           setCountdown(prev => {
             if (prev <= 1) {
@@ -2164,13 +2291,11 @@ ${productList}
                 clearInterval(countdownIntervalRef.current);
                 countdownIntervalRef.current = null;
               }
-              // v4.9: 先跳转再重置，避免闪回空表单（总价为0）
-              // 跳转回首页
+              // v7.0: 超时默认跳转到仪表板
               onSave(logData);
               // 延迟重置表单状态，确保跳转后再重置
-              // v6.0: 先设 step='WELCOME' 再重置其他状态，防止 useEffect 在 submitProgress 重置后又保存草稿
               setTimeout(() => {
-                setStep('WELCOME');  // 先设置 step，useEffect 只在 WORKSHEET/SUMMARY 保存草稿
+                setStep('WELCOME');
                 setItems([{ name: '', specification: '', quantity: 1, unit: '', unitPrice: 0, total: 0 }]);
                 setSupplier('');
                 setSupplierOther('');
@@ -2197,15 +2322,14 @@ ${productList}
     }
   };
 
-  // 立即返回 - 跳过倒计时直接返回
-  // v4.9: 先跳转再重置，避免闪回空表单
-  const handleImmediateReturn = () => {
+  // v7.0: 返回首页 - 跳转到仪表板
+  const handleReturnHome = () => {
     // 清除倒计时
     if (countdownIntervalRef.current) {
       clearInterval(countdownIntervalRef.current);
       countdownIntervalRef.current = null;
     }
-    // 构建 logData 并调用 onSave 跳转（先跳转）
+    // 构建 logData 并调用 onSave 跳转到仪表板
     const logData: Omit<DailyLog, 'id'> = {
       date: new Date().toISOString(),
       category: selectedCategory,
@@ -2216,10 +2340,9 @@ ${productList}
       status: 'Stocked',
     };
     onSave(logData);
-    // 延迟重置状态，确保跳转后再重置
-    // v6.0: 先设 step='WELCOME' 再重置其他状态，防止 useEffect 又保存草稿
+    // 延迟重置状态
     setTimeout(() => {
-      setStep('WELCOME');  // 先设置 step，useEffect 只在 WORKSHEET/SUMMARY 保存草稿
+      setStep('WELCOME');
       setSubmitMessage('');
       setIsSubmitting(false);
       setSubmitProgress(null);
@@ -2233,6 +2356,29 @@ ${productList}
       setUseAiPhotoCount(0);
       setUseAiVoiceCount(0);
     }, 100);
+  };
+
+  // v7.0: 继续录入 - 重置表单到 WELCOME 步骤，不跳转到仪表板
+  const handleContinueEntry = () => {
+    // 清除倒计时
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
+    }
+    // 直接重置表单状态，不调用 onSave（不跳转到仪表板）
+    setStep('WELCOME');
+    setSubmitMessage('');
+    setIsSubmitting(false);
+    setSubmitProgress(null);
+    setCountdown(0);
+    setItems([{ name: '', specification: '', quantity: 1, unit: '', unitPrice: 0, total: 0 }]);
+    setSupplier('');
+    setSupplierOther('');
+    setNotes('');
+    setReceiptImages([]);
+    setGoodsImages([]);
+    setUseAiPhotoCount(0);
+    setUseAiVoiceCount(0);
   };
 
   return (
@@ -2271,6 +2417,8 @@ ${productList}
           selectedCategory={selectedCategory}
           materialValidationErrors={materialValidationErrors}
           onMaterialNameBlur={handleMaterialNameValidation}
+          isWastage={isWastage}
+          onWastageToggle={handleWastageToggle}
           onBack={() => setStep('CATEGORY')}
           onSupplierChange={setSupplier}
           onSupplierOtherChange={setSupplierOther}
@@ -2304,7 +2452,8 @@ ${productList}
           countdown={countdown}
           onBack={() => setStep('WORKSHEET')}
           onConfirm={handleSummaryConfirm}
-          onImmediateReturn={handleImmediateReturn}
+          onReturnHome={handleReturnHome}
+          onContinueEntry={handleContinueEntry}
         />
       )}
 
