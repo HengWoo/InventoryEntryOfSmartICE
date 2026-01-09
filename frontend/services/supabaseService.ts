@@ -77,6 +77,7 @@ export interface Category {
 }
 
 // v5.0 - store_id → restaurant_id (UUID)
+// v5.1 - 添加 is_wastage 字段，支持损耗记录
 // v3.7 - 添加 use_ai_photo 和 use_ai_voice 字段，追踪 AI 功能使用情况
 // v3.6 - 添加 specification 字段，与 notes 分开存储
 export interface StorePurchasePrice {
@@ -88,8 +89,8 @@ export interface StorePurchasePrice {
   item_name: string;          // 原始录入名称
   quantity: number;           // 数量
   unit: string;               // 单位（自由文本）
-  unit_price: number;         // 单价
-  total_amount?: number;      // 总金额
+  unit_price: number | null;  // v5.1: 单价（损耗记录为 null）
+  total_amount?: number | null; // v5.1: 总金额（损耗记录为 null）
   receipt_image?: string;     // 收货单图片 URL
   goods_image?: string;       // 货物图片 URL
   price_date: string;         // 采购日期
@@ -99,6 +100,7 @@ export interface StorePurchasePrice {
   status?: string;            // pending/approved/rejected
   use_ai_photo?: number;      // v3.7: AI 识图功能使用次数
   use_ai_voice?: number;      // v3.7: 语音识别功能使用次数
+  is_wastage?: boolean;       // v5.1: 是否为损耗记录
 }
 
 // ============ 品牌 API ============
@@ -478,6 +480,7 @@ export async function createPurchasePrice(data: StorePurchasePrice): Promise<Sto
 
 /**
  * 批量创建采购价格记录
+ * v5.1 - 支持 is_wastage 字段（损耗记录）
  * v5.0 - 使用 restaurant_id 替代 store_id
  * v3.7 - 支持 use_ai_photo/use_ai_voice 字段
  */
@@ -503,6 +506,7 @@ export async function createPurchasePrices(records: StorePurchasePrice[]): Promi
       status: r.status || 'pending',
       use_ai_photo: r.use_ai_photo || 0,
       use_ai_voice: r.use_ai_voice || 0,
+      is_wastage: r.is_wastage || false,
     })))
     .select();
 

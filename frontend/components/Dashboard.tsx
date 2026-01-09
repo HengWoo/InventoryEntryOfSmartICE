@@ -1,10 +1,12 @@
 /**
  * Dashboard 仪表板组件
+ * v4.6 - 修复移动端搜索框无法输入的问题（添加 onTouchStart/onMouseDown 阻止事件冒泡）
  * v4.5 - 物品选择添加模糊搜索功能，显示全部物品
  * v4.4 - 物品选择改为按钮下拉样式，与品类筛选统一
  * v4.3 - 品类筛选改为自定义下拉框，统一与物品追踪下拉框样式
  *
  * 主要变更：
+ * - v4.6: 修复移动端触摸搜索框时下拉框被关闭的问题
  * - v4.5: 物品下拉框添加搜索输入框，支持模糊搜索全部物品
  * - v4.4: 物品选择使用按钮下拉样式，移除搜索输入框，统一UI风格
  * - v4.3: 品类筛选使用自定义下拉框，高度与日期选择按钮一致(34px)
@@ -356,6 +358,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ logs, restaurantId }) => {
                     className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-sm text-white placeholder-white/40 focus:outline-none focus:border-white/40"
                     autoFocus
                     onClick={(e) => e.stopPropagation()}
+                    onTouchStart={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
                   />
                 </div>
                 {/* 物品列表 */}
