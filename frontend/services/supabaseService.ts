@@ -757,6 +757,7 @@ export async function getAllSuppliersAsOptions(): Promise<AutocompleteOption[]> 
 /**
  * 采购历史记录项
  */
+// v5.2: 添加 is_wastage 字段支持损耗记录显示
 export interface ProcurementHistoryItem {
   id: number;
   item_name: string;
@@ -771,6 +772,7 @@ export interface ProcurementHistoryItem {
   receipt_image: string | null;
   goods_image: string | null;
   created_at: string;
+  is_wastage: boolean;
 }
 
 // v4.5: 时间筛选类型
@@ -847,6 +849,7 @@ export async function getProcurementHistory(
   const hasMore = (from + (data?.length || 0)) < total;
 
   // v5.0: 优先使用关联查询的供应商名称，其次使用 supplier_name 字段
+  // v5.2: 添加 is_wastage 字段
   return {
     data: (data || []).map(item => ({
       id: item.id,
@@ -862,6 +865,7 @@ export async function getProcurementHistory(
       receipt_image: item.receipt_image,
       goods_image: item.goods_image,
       created_at: item.created_at,
+      is_wastage: item.is_wastage || false,
     })),
     hasMore,
     total,

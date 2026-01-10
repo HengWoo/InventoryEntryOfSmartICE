@@ -40,6 +40,7 @@ interface QueueHistoryPageProps {
 }
 
 // 统一的记录类型
+// v5.3: 添加 isWastage 字段支持损耗记录
 type RecordType = 'queue' | 'history';
 interface UnifiedRecord {
   type: RecordType;
@@ -51,6 +52,7 @@ interface UnifiedRecord {
   status: 'pending' | 'uploading' | 'success' | 'failed' | 'completed';
   // v4.5: history类型存储聚合后的多条记录数组
   original: QueueItem | ProcurementHistoryItem[];
+  isWastage?: boolean;  // v5.3: 是否为损耗记录
 }
 
 type ViewMode = 'list' | 'detail';
@@ -162,6 +164,7 @@ export const QueueHistoryPage: React.FC<QueueHistoryPageProps> = ({ onBack }) =>
   }, [showFilterDropdown]);
 
   // v4.7: 聚合历史记录 - 按供应商+created_at分组
+  // v5.3: 损耗记录显示"损耗"而非"未知供应商"
   const aggregatedHistory = React.useMemo(() => {
     const groups = new Map<string, ProcurementHistoryItem[]>();
 
@@ -174,17 +177,23 @@ export const QueueHistoryPage: React.FC<QueueHistoryPageProps> = ({ onBack }) =>
       groups.get(key)!.push(item);
     });
 
-    return Array.from(groups.entries()).map(([key, items]) => ({
-      key,
-      items,
-      supplierName: items[0].supplier_name || '未知供应商',
-      totalAmount: items.reduce((sum, i) => sum + i.total_amount, 0),
-      itemCount: items.length,
-      timestamp: new Date(items[0].created_at).getTime(),
-    }));
+    return Array.from(groups.entries()).map(([key, items]) => {
+      // v5.3: 检查是否为损耗记录（任一物品标记为损耗即视为损耗记录）
+      const isWastage = items.some(i => i.is_wastage);
+      return {
+        key,
+        items,
+        supplierName: isWastage ? '损耗' : (items[0].supplier_name || '未知供应商'),
+        totalAmount: items.reduce((sum, i) => sum + i.total_amount, 0),
+        itemCount: items.length,
+        timestamp: new Date(items[0].created_at).getTime(),
+        isWastage,
+      };
+    });
   }, [history]);
 
   // 合并并排序记录
+  // v5.3: 添加 isWastage 字段
   const unifiedRecords: UnifiedRecord[] = [
     // v4.8: 本地队列（包含成功状态，让用户看到"已上传"后再消失）
     // v5.2: 损耗模式显示"损耗"而非"未知供应商"
@@ -198,8 +207,10 @@ export const QueueHistoryPage: React.FC<QueueHistoryPageProps> = ({ onBack }) =>
         timestamp: item.createdAt,
         status: item.status as UnifiedRecord['status'],
         original: [item] as any,  // 保持类型兼容，实际使用时会区分type
+        isWastage: item.data.isWastage || false,
       })),
     // v4.5: 聚合后的历史记录
+    // v5.3: 添加 isWastage 字段
     ...aggregatedHistory.map(group => ({
       type: 'history' as RecordType,
       id: group.key,  // 使用聚合key作为id
@@ -209,6 +220,7 @@ export const QueueHistoryPage: React.FC<QueueHistoryPageProps> = ({ onBack }) =>
       timestamp: group.timestamp,
       status: 'completed' as UnifiedRecord['status'],
       original: group.items,  // 存储聚合后的所有记录
+      isWastage: group.isWastage,
     })),
   ].sort((a, b) => b.timestamp - a.timestamp);
 
@@ -433,6 +445,7 @@ export const QueueHistoryPage: React.FC<QueueHistoryPageProps> = ({ onBack }) =>
 };
 
 // ============ 统一记录卡片 ============
+// v5.3: 损耗记录不显示金额，显示橙色标签
 
 const RecordCard: React.FC<{
   record: UnifiedRecord;
@@ -452,28 +465,32 @@ const RecordCard: React.FC<{
   const config = statusConfig[record.status];
   const StatusIcon = config.icon;
   const isUploading = record.status === 'uploading';
+  const isWastage = record.isWastage || false;
 
   return (
     <GlassCard padding="md" className="active:scale-[0.99] transition-transform" onClick={onClick}>
       <div className="flex items-start gap-3">
-        {/* 状态图标 */}
-        <div className={`w-10 h-10 rounded-full ${config.bgColor} flex items-center justify-center flex-shrink-0`}>
+        {/* 状态图标 - 损耗记录使用橙色 */}
+        <div className={`w-10 h-10 rounded-full ${isWastage ? 'bg-ios-orange/10' : config.bgColor} flex items-center justify-center flex-shrink-0`}>
           {isUploading ? (
             <div className="w-5 h-5 border-2 border-ios-blue/30 border-t-ios-blue rounded-full animate-spin" />
           ) : (
-            <StatusIcon className={`w-5 h-5 ${config.color}`} />
+            <StatusIcon className={`w-5 h-5 ${isWastage ? 'text-ios-orange' : config.color}`} />
           )}
         </div>
 
         {/* 内容 */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between mb-1">
-            <h3 className="text-base font-semibold text-primary truncate">{record.supplierName}</h3>
-            <span className="text-ios-blue font-bold">¥{record.totalAmount.toFixed(2)}</span>
+            <h3 className={`text-base font-semibold truncate ${isWastage ? 'text-ios-orange' : 'text-primary'}`}>{record.supplierName}</h3>
+            {/* v5.3: 损耗记录不显示金额 */}
+            {!isWastage && (
+              <span className="text-ios-blue font-bold">¥{record.totalAmount.toFixed(2)}</span>
+            )}
           </div>
           <div className="flex items-center gap-3 text-sm text-secondary">
             <span>{record.itemCount} 项商品</span>
-            <span className={`text-xs ${config.color}`}>{config.label}</span>
+            <span className={`text-xs ${isWastage ? 'text-ios-orange' : config.color}`}>{config.label}</span>
           </div>
           <div className="text-xs text-muted mt-1">{formatTime(record.timestamp)}</div>
 

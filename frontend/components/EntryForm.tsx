@@ -1,4 +1,5 @@
 // EntryForm - 采购录入表单
+// v7.1 - 修复损耗模式确认页面显示"未知供应商"问题：SummaryScreen 传入 supplier 时判断 isWastage
 // v7.0 - 损耗模式：添加 Toggle Switch 切换入库/损耗模式，损耗模式隐藏供应商/AI识别/价格字段
 // v6.8 - 修复内存不足问题：提交前先清除草稿，避免草稿+队列双份存储导致 IndexedDB 空间耗尽
 // v6.7 - 修复总价计算错误：total 字段从输入框获取时是字符串，reduce 相加变成拼接而非求和
@@ -836,8 +837,8 @@ const WorksheetScreen: React.FC<{
 
                  {/* Grid Row: Data Inputs */}
                  {/* v5.0: 员工餐模式下简化布局（移除规格和单位列，因为不需要显示） */}
-                 {/* v7.0: 损耗模式下只显示单位和数量（4列） */}
-                 <div className={`grid gap-2 ${isWastage ? 'grid-cols-4' : isStaffMealMode ? 'grid-cols-9' : 'grid-cols-12'}`}>
+                 {/* v7.0: 损耗模式下只显示单位和数量，使用 grid-cols-2 避免移动端 col-span 兼容性问题 */}
+                 <div className={`grid gap-2 ${isWastage ? 'grid-cols-2' : isStaffMealMode ? 'grid-cols-9' : 'grid-cols-12'}`}>
                     {/* Packaging - v5.0: 员工餐模式下隐藏, v7.0: 损耗模式下隐藏 */}
                     {!isStaffMealMode && !isWastage && (
                       <div className="col-span-3">
@@ -851,8 +852,8 @@ const WorksheetScreen: React.FC<{
                           />
                       </div>
                     )}
-                    {/* Unit - v5.0: 员工餐模式下显示固定"天"文本 */}
-                    <div className="col-span-2">
+                    {/* Unit - v5.0: 员工餐模式下显示固定"天"文本, v7.0: 损耗模式下占1列 */}
+                    <div className={isWastage ? '' : 'col-span-2'}>
                         <label className="block text-[9px] text-muted mb-1 text-center">单位</label>
                         {isStaffMealMode ? (
                           <div className="w-full bg-white/5 border border-white/10 rounded-glass-sm py-2 text-center text-sm text-white/60">
@@ -868,8 +869,8 @@ const WorksheetScreen: React.FC<{
                           />
                         )}
                     </div>
-                    {/* Qty - v5.0: 员工餐模式下固定为1 */}
-                    <div className="col-span-2">
+                    {/* Qty - v5.0: 员工餐模式下固定为1, v7.0: 损耗模式下占1列 */}
+                    <div className={isWastage ? '' : 'col-span-2'}>
                         <label className="block text-[9px] text-muted mb-1 text-center">数量</label>
                         {isStaffMealMode ? (
                           <div className="w-full bg-white/5 border border-white/10 rounded-glass-sm py-2 text-center text-sm text-white/60">
@@ -1359,6 +1360,9 @@ export const EntryForm: React.FC<EntryFormProps> = ({ onSave, userName, userNick
   const [isWastage, setIsWastage] = useState(false);  // v7.0: 损耗模式开关
   const [supplier, setSupplier] = useState('');
   const [supplierOther, setSupplierOther] = useState('');  // v3.0: "其他"供应商名称
+
+  // v7.1: 统一供应商逻辑 - 损耗模式自动使用"损耗"作为供应商
+  const effectiveSupplier = isWastage ? '损耗' : (supplier || '未知供应商');
   const [notes, setNotes] = useState('');
   const [items, setItems] = useState<ProcurementItem[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -2243,7 +2247,7 @@ ${productList}
     const logData: Omit<DailyLog, 'id'> = {
       date: new Date().toISOString(),
       category: selectedCategory,
-      supplier: isWastage ? '损耗' : (supplier || '未知供应商'),
+      supplier: effectiveSupplier,
       supplierOther: supplier === '其他' ? supplierOther : undefined,
       items: validItems,
       totalCost: calculateGrandTotal(),
@@ -2442,7 +2446,7 @@ ${productList}
       {step === 'SUMMARY' && (
         <SummaryScreen
           items={items}
-          supplier={supplier}
+          supplier={effectiveSupplier}
           notes={notes}
           grandTotal={calculateGrandTotal()}
           isSubmitting={isSubmitting}
