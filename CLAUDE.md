@@ -170,6 +170,12 @@ CORS_ORIGINS=https://inv.smartice.ai
 
 **注意**：Render Free Tier 有冷启动问题（15 分钟无请求后休眠），使用 Cloudflare Worker 保持唤醒。
 
+**部署验证**：推送代码后，必须使用 `wrangler` 确认 Cloudflare Worker 已成功部署：
+```bash
+cd keep-alive-worker
+npx wrangler deploy
+```
+
 ### 架构图
 
 ```
