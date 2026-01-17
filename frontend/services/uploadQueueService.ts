@@ -1,5 +1,7 @@
 /**
  * 上传队列服务
+ * v2.7 - 激进清理模式（存储使用率 >80% 时删除所有失败项 + 24h 以上 pending 项）
+ * v2.6 - 动态存储空间检查（基于实际数据大小）+ 持久化存储请求
  * v2.5 - 添加取消上传功能，用户可手动中断卡住的上传
  * v2.4 - 修复"永久上传中"bug：启动时恢复卡住的uploading状态为pending
  * v2.3 - 重试次数改为1次（原3次），失败后立即在UI显示，方便用户及时处理
@@ -8,6 +10,9 @@
  * v2.0 - 使用 IndexedDB 替代 localStorage，实现原子事务
  *
  * 变更历史：
+ * - v2.6: 动态存储空间检查（基于实际数据大小，而非固定 10MB）
+ *         请求持久化存储（防止 Safari 7 天自动清理）
+ *         使用率超过 80% 时提前警告
  * - v2.5: 添加 cancelUpload 方法，用户可手动取消卡住的上传项
  * - v2.4: 修复"永久上传中"bug - 用户关闭app时item可能卡在uploading状态
  *         启动时检测超过2分钟的uploading项，重置为pending重新上传
@@ -25,15 +30,16 @@
  * - v1.4: saveQueue 返回 boolean，addToQueue 保存失败时返回 null
  * - v1.3: addToQueue/addToUploadQueue 支持传入 brandId (数字外键)
  *
- * 核心原则（v2.1）：
+ * 核心原则（v2.6）：
  * - 一次上传 = 一个原子事务
+ * - 动态存储检查：基于实际数据大小，预留 50% 缓冲空间
  * - 失败项保留3天后自动清理，防止存储空间耗尽
  * - 成功后立即删除，避免存储占用
  */
 
 import { DailyLog } from '../types';
 import { submitProcurement, SubmitResult, AiUsageStats } from './inventoryService';
-import { setItem, getItem, isIndexedDBAvailable, migrateFromLocalStorage, getStorageEstimate, checkStorageAvailable } from './indexedDBService';
+import { setItem, getItem, isIndexedDBAvailable, migrateFromLocalStorage, getStorageEstimate, checkStorageForItem, requestPersistentStorage } from './indexedDBService';
 
 // ============ 类型定义 ============
 
@@ -68,6 +74,8 @@ const FAILED_EXPIRE_DAYS = 3;          // v2.1: 失败项保留天数（超过�
 const FAILED_EXPIRE_MS = FAILED_EXPIRE_DAYS * 24 * 60 * 60 * 1000;
 const MAX_FAILED_ITEMS = 10;           // v2.2: 失败项最大保留数量（超出则删除最旧的）
 const STUCK_UPLOADING_MS = 2 * 60 * 1000;  // v2.4: 超过2分钟的uploading视为卡住
+const AGGRESSIVE_CLEANUP_THRESHOLD = 0.8;  // v2.7: 存储使用率超过 80% 时触发激进清理
+const PENDING_EXPIRE_HOURS = 24;           // v2.7: 激进清理时，pending 项超过 24 小时视为过期
 
 // ============ 队列管理器 ============
 
@@ -86,9 +94,14 @@ class UploadQueueManager {
   /**
    * v2.1: 异步初始化（添加过期清理）
    * v2.4: 添加卡住的 uploading 记录重置
+   * v2.6: 请求持久化存储（防止 Safari 7 天自动清理）
+   * v2.7: 高存储使用率时触发激进清理
    */
   private async initialize() {
     await this.loadQueue();
+
+    // v2.6: 请求持久化存储
+    await requestPersistentStorage();
 
     // v2.4: 启动时重置卡住的 uploading 记录
     const resetCount = await this.resetStuckUploadingItems();
@@ -99,17 +112,28 @@ class UploadQueueManager {
     // v2.1: 启动时清理过期的失败项
     await this.cleanupExpiredItems();
 
+    // v2.7: 检查存储使用率，高于阈值时触发激进清理
+    const estimate = await getStorageEstimate();
+    if (estimate) {
+      const usagePercent = estimate.usage / estimate.quota;
+      if (usagePercent > AGGRESSIVE_CLEANUP_THRESHOLD) {
+        console.warn(`[队列 v2.7] 存储使用率过高 (${(usagePercent * 100).toFixed(1)}%)，触发激进清理...`);
+        await this.aggressiveCleanup();
+      }
+    }
+
     this.startProcessing();
     this.initialized = true;
 
     // 输出存储空间信息
-    const estimate = await getStorageEstimate();
-    if (estimate) {
-      const usedMB = (estimate.usage / 1024 / 1024).toFixed(1);
-      const quotaMB = (estimate.quota / 1024 / 1024).toFixed(0);
-      console.log(`[队列 v2.1] 存储空间: ${usedMB}MB / ${quotaMB}MB`);
+    const finalEstimate = await getStorageEstimate();
+    if (finalEstimate) {
+      const usedMB = (finalEstimate.usage / 1024 / 1024).toFixed(1);
+      const quotaMB = (finalEstimate.quota / 1024 / 1024).toFixed(0);
+      const usagePercent = ((finalEstimate.usage / finalEstimate.quota) * 100).toFixed(1);
+      console.log(`[队列 v2.7] 存储空间: ${usedMB}MB / ${quotaMB}MB (${usagePercent}%)`);
     }
-    console.log(`[队列 v2.1] 初始化完成，当前队列项数: ${this.queue.length}`);
+    console.log(`[队列 v2.7] 初始化完成，当前队列项数: ${this.queue.length}`);
   }
 
   /**
@@ -125,6 +149,7 @@ class UploadQueueManager {
 
   /**
    * 添加新项到队列
+   * v2.6 - 动态存储空间检查（基于实际数据大小）
    * v2.1 - 添加存储空间预检，空间不足时先清理过期项
    */
   async addToQueue(
@@ -136,22 +161,10 @@ class UploadQueueManager {
   ): Promise<string | null> {
     await this.waitForInit();
 
-    // v2.1: 检查存储空间，不足时先清理过期项
-    const hasSpace = await checkStorageAvailable(10);  // 需要至少 10MB
-    if (!hasSpace) {
-      console.log('[队列] 存储空间不足，尝试清理过期项...');
-      await this.cleanupExpiredItems();
-      // 再次检查
-      const hasSpaceAfterCleanup = await checkStorageAvailable(10);
-      if (!hasSpaceAfterCleanup) {
-        console.error('[队列] 清理后空间仍不足，无法添加新任务');
-        return null;
-      }
-    }
-
     const id = this.generateId();
     const now = Date.now();
 
+    // 先构建完整的队列项，用于计算实际大小
     const item: QueueItem = {
       id,
       status: 'pending',
@@ -164,6 +177,26 @@ class UploadQueueManager {
       aiUsage,
       brandId,
     };
+
+    // v2.6: 动态检查存储空间（基于实际数据大小）
+    const storageCheck = await checkStorageForItem(item);
+    if (!storageCheck.canStore) {
+      console.log(`[队列 v2.6] 存储空间不足 (需要 ${storageCheck.requiredMB.toFixed(1)}MB)，尝试清理...`);
+      await this.cleanupExpiredItems();
+
+      // 再次检查
+      const recheckResult = await checkStorageForItem(item);
+      if (!recheckResult.canStore) {
+        console.error(`[队列 v2.6] 清理后空间仍不足: ${recheckResult.reason}`);
+        return null;
+      }
+      console.log(`[队列 v2.6] 清理后空间充足，继续添加任务`);
+    }
+
+    // v2.6: 如果使用率超过 80%，提前警告
+    if (storageCheck.usagePercent > 80) {
+      console.warn(`[队列 v2.6] 存储使用率较高: ${storageCheck.usagePercent.toFixed(1)}%`);
+    }
 
     this.queue.push(item);
 
@@ -272,6 +305,45 @@ class UploadQueueManager {
     if (totalCleaned > 0) {
       await this.saveQueue();
       this.notifyListeners();
+    }
+
+    return totalCleaned;
+  }
+
+  /**
+   * v2.7: 激进清理（存储使用率过高时调用）
+   * 1. 删除所有失败项（不管时间）
+   * 2. 删除超过 24 小时的 pending 项（可能是卡住的）
+   */
+  private async aggressiveCleanup(): Promise<number> {
+    const now = Date.now();
+    const pendingExpireMs = PENDING_EXPIRE_HOURS * 60 * 60 * 1000;
+    let totalCleaned = 0;
+
+    // 1. 删除所有失败项
+    const failedItems = this.queue.filter(item => item.status === 'failed');
+    if (failedItems.length > 0) {
+      const failedIds = new Set(failedItems.map(item => item.id));
+      this.queue = this.queue.filter(item => !failedIds.has(item.id));
+      totalCleaned += failedItems.length;
+      console.log(`[队列 v2.7] 激进清理: 删除 ${failedItems.length} 个失败项`);
+    }
+
+    // 2. 删除超过 24 小时的 pending 项
+    const oldPendingItems = this.queue.filter(item =>
+      item.status === 'pending' && (now - item.createdAt) > pendingExpireMs
+    );
+    if (oldPendingItems.length > 0) {
+      const oldPendingIds = new Set(oldPendingItems.map(item => item.id));
+      this.queue = this.queue.filter(item => !oldPendingIds.has(item.id));
+      totalCleaned += oldPendingItems.length;
+      console.log(`[队列 v2.7] 激进清理: 删除 ${oldPendingItems.length} 个超过 ${PENDING_EXPIRE_HOURS}h 的 pending 项`);
+    }
+
+    if (totalCleaned > 0) {
+      await this.saveQueue();
+      this.notifyListeners();
+      console.log(`[队列 v2.7] 激进清理完成，共清理 ${totalCleaned} 项`);
     }
 
     return totalCleaned;

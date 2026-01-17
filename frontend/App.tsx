@@ -1,3 +1,4 @@
+// v5.1.0 - 添加上传进度 Banner，提醒用户不要关闭页面
 // v5.0.0 - 添加上传状态 Banner，显示异步上传进度和结果
 // v4.3.0 - 添加版本检测，每 10 分钟轮询检查新版本并提示用户刷新
 // v4.2.0 - PreloadData 改为登录后加载，不再启动时加载
@@ -19,6 +20,7 @@ import { QueueHistoryPage } from './components/QueueHistoryPage';
 import { Memo } from './components/Memo';
 import { UpdateBanner } from './components/ui/UpdateBanner';
 import { UploadStatusBanner, UploadStatus } from './components/UploadStatusBanner';
+import { UploadProgressBanner } from './components/UploadProgressBanner';
 import { DailyLog, AppView } from './types';
 import { Icons } from './constants';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -188,6 +190,9 @@ const AppContent: React.FC = () => {
           onDismiss={handleDismissBanner}
         />
       )}
+
+      {/* v5.1: 上传进度 Banner - 提醒用户不要关闭页面 */}
+      <UploadProgressBanner currentPage={currentView === AppView.HISTORY ? 'history' : undefined} />
 
       <Sidebar
         currentView={currentView}

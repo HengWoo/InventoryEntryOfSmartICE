@@ -1,5 +1,7 @@
 /**
  * IndexedDB 存储服务
+ * v1.6 - 动态配额检查（基于实际数据大小）+ 使用率阈值 + 持久化存储
+ * v1.5 - 动态配额检查 + 持久化存储请求 + 使用率监控
  * v1.4 - 添加存储空间检查函数 checkStorageAvailable
  * v1.3 - 添加打开数据库超时机制（防止页面空白）
  * v1.2 - 移除日常操作日志，只保留错误日志
@@ -7,6 +9,9 @@
  * v1.0 - 替代 localStorage，解决 5MB 容量限制问题
  *
  * 变更历史：
+ * - v1.6: 动态配额检查（基于实际数据大小），checkStorageForItem() 新增
+ *         使用率超过 80% 时触发清理，持久化存储请求
+ * - v1.5: 动态配额检查（基于实际数据大小），持久化存储请求，使用率监控
  * - v1.4: 添加 checkStorageAvailable 函数，提交前检查存储空间是否充足
  * - v1.3: 添加 5 秒超时机制，防止 IndexedDB 打开失败时页面空白
  * - v1.2: 移除频繁的日常操作日志（保存成功等），只保留错误日志
@@ -17,13 +22,15 @@
  * - 提供类似 localStorage 的简单 API
  * - 支持大容量存储（通常为磁盘空间的 50%）
  * - 自动处理数据库初始化和升级
- * - 存储空间检查和预警
+ * - 动态存储空间检查和预警（基于实际数据大小）
  */
 
 const DB_NAME = 'smartice_inventory';
 const DB_VERSION = 1;
 const STORE_NAME = 'upload_queue';
 const DB_OPEN_TIMEOUT_MS = 5000; // v1.3: 数据库打开超时时间
+const STORAGE_WARNING_THRESHOLD = 0.8; // v1.6: 使用率超过 80% 时警告
+const STORAGE_BUFFER_MULTIPLIER = 1.5; // v1.6: 存储时预留 50% 缓冲空间
 
 // ============ 数据库初始化 ============
 
@@ -92,7 +99,6 @@ async function getDB(): Promise<IDBDatabase> {
  */
 export async function setItem<T>(key: string, value: T): Promise<void> {
   const db = await getDB();
-  const dataSize = JSON.stringify(value).length;
 
   return new Promise((resolve, reject) => {
     const transaction = db.transaction([STORE_NAME], 'readwrite');
@@ -249,25 +255,113 @@ export async function getStorageEstimate(): Promise<{ usage: number; quota: numb
 }
 
 /**
- * v1.4: 检查存储空间是否充足
- * @param requiredMB 需要的空间（MB），默认 10MB
- * @returns true=空间充足，false=空间不足
+ * v1.6: 检查存储空间是否足够存储指定数据
+ * 基于实际数据大小进行动态检查，而非固定阈值
+ * @param dataToStore 要存储的数据（用于计算大小）
+ * @returns { canStore: boolean, reason?: string, usagePercent: number }
  */
-export async function checkStorageAvailable(requiredMB: number = 10): Promise<boolean> {
+export async function checkStorageForItem<T>(dataToStore: T): Promise<{
+  canStore: boolean;
+  reason?: string;
+  usagePercent: number;
+  availableMB: number;
+  requiredMB: number;
+}> {
+  const estimate = await getStorageEstimate();
+
+  // 无法获取存储信息时，假设可以存储
+  if (!estimate) {
+    return { canStore: true, usagePercent: 0, availableMB: 0, requiredMB: 0 };
+  }
+
+  const dataSize = JSON.stringify(dataToStore).length;
+  const requiredBytes = dataSize * STORAGE_BUFFER_MULTIPLIER; // 预留 50% 缓冲
+  const availableBytes = estimate.quota - estimate.usage;
+  const usagePercent = (estimate.usage / estimate.quota) * 100;
+  const availableMB = availableBytes / 1024 / 1024;
+  const requiredMB = requiredBytes / 1024 / 1024;
+
+  // 检查 1: 使用率是否超过警告阈值
+  if (usagePercent > STORAGE_WARNING_THRESHOLD * 100) {
+    console.warn(`[IndexedDB] 存储使用率过高: ${usagePercent.toFixed(1)}%`);
+  }
+
+  // 检查 2: 可用空间是否足够
+  if (availableBytes < requiredBytes) {
+    const reason = `存储空间不足: 需要 ${requiredMB.toFixed(1)}MB，剩余 ${availableMB.toFixed(1)}MB`;
+    console.warn(`[IndexedDB] ${reason}`);
+    return { canStore: false, reason, usagePercent, availableMB, requiredMB };
+  }
+
+  return { canStore: true, usagePercent, availableMB, requiredMB };
+}
+
+/**
+ * v1.6: 检查存储空间是否充足（基于使用率）
+ * @param warningThreshold 警告阈值（0-1），默认 0.8 (80%)
+ * @returns true=空间充足，false=空间不足或使用率过高
+ */
+export async function checkStorageAvailable(warningThreshold: number = STORAGE_WARNING_THRESHOLD): Promise<boolean> {
   const estimate = await getStorageEstimate();
   if (!estimate) {
     // 无法获取存储信息时，假设空间充足
     return true;
   }
 
+  const usagePercent = (estimate.usage / estimate.quota) * 100;
   const availableMB = (estimate.quota - estimate.usage) / 1024 / 1024;
-  const isAvailable = availableMB >= requiredMB;
+  const isAvailable = usagePercent < warningThreshold * 100;
 
   if (!isAvailable) {
-    console.warn(`[IndexedDB] 存储空间不足: 剩余 ${availableMB.toFixed(1)}MB，需要 ${requiredMB}MB`);
+    console.warn(`[IndexedDB] 存储使用率过高: ${usagePercent.toFixed(1)}%，剩余 ${availableMB.toFixed(1)}MB`);
   }
 
   return isAvailable;
+}
+
+/**
+ * v1.6: 请求持久化存储（防止浏览器自动清理）
+ * Safari 会在 7 天不活跃后自动清理数据，请求持久化可以防止这种情况
+ * @returns true=已获得持久化权限，false=未获得或不支持
+ */
+export async function requestPersistentStorage(): Promise<boolean> {
+  if (!navigator.storage?.persist) {
+    console.log('[IndexedDB] 浏览器不支持持久化存储 API');
+    return false;
+  }
+
+  try {
+    const isPersisted = await navigator.storage.persist();
+    console.log(`[IndexedDB] 持久化存储: ${isPersisted ? '已启用' : '未启用'}`);
+    return isPersisted;
+  } catch (error) {
+    console.error('[IndexedDB] 请求持久化存储失败:', error);
+    return false;
+  }
+}
+
+/**
+ * v1.6: 获取存储使用情况摘要（用于 UI 显示）
+ */
+export async function getStorageSummary(): Promise<{
+  usedMB: number;
+  quotaMB: number;
+  usagePercent: number;
+  isWarning: boolean;
+} | null> {
+  const estimate = await getStorageEstimate();
+  if (!estimate) return null;
+
+  const usedMB = estimate.usage / 1024 / 1024;
+  const quotaMB = estimate.quota / 1024 / 1024;
+  const usagePercent = (estimate.usage / estimate.quota) * 100;
+
+  return {
+    usedMB,
+    quotaMB,
+    usagePercent,
+    isWarning: usagePercent > STORAGE_WARNING_THRESHOLD * 100
+  };
 }
 
 /**
