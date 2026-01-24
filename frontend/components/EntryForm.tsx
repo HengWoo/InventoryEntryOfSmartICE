@@ -1,4 +1,5 @@
 // EntryForm - 采购录入表单
+// v7.2 - 修复移动端纠偏提示不显示：检查物料数据是否加载完成，避免 products 为空时跳过纠偏
 // v7.1 - 修复损耗模式确认页面显示"未知供应商"问题：SummaryScreen 传入 supplier 时判断 isWastage
 // v7.0 - 损耗模式：添加 Toggle Switch 切换入库/损耗模式，损耗模式隐藏供应商/AI识别/价格字段
 // v6.8 - 修复内存不足问题：提交前先清除草稿，避免草稿+队列双份存储导致 IndexedDB 空间耗尽
@@ -1353,7 +1354,8 @@ export const EntryForm: React.FC<EntryFormProps> = ({ onSave, userName, userNick
   // v4.4: 从预加载数据获取分类
   // v5.5: 新增 suppliers 用于验证"其他"供应商名称是否重复
   // v6.2: 新增 products 用于 AI 识别二次纠偏
-  const { categories, suppliers, products } = usePreloadData();
+  // v7.2: 新增 isLoaded 用于检查物料数据是否加载完成
+  const { categories, suppliers, products, isLoaded: isProductsLoaded } = usePreloadData();
 
   const [step, setStep] = useState<EntryStep>('WELCOME');
   const [selectedCategory, setSelectedCategory] = useState<CategoryType>('');
@@ -1894,10 +1896,18 @@ export const EntryForm: React.FC<EntryFormProps> = ({ onSave, userName, userNick
   };
 
   // v4.6: AI识别按钮点击处理（支持多张图片批量识别）+ 使用次数追踪
+  // v7.2: 增加物料数据加载检查，避免纠偏功能失效
   const handleAIRecognize = async () => {
     // 找出未识别的图片
     const unrecognizedImages = receiptImages.filter(img => !img.recognized);
     if (unrecognizedImages.length === 0 || isRecognizing) return;
+
+    // v7.2: 检查物料数据是否加载完成，否则纠偏功能无法正常工作
+    if (!isProductsLoaded || products.length === 0) {
+      alert('物料数据正在加载中，请稍后再试');
+      console.warn('[AI识别] 物料数据未加载完成，跳过识别');
+      return;
+    }
 
     console.log(`[AI识别] 开始识别 ${unrecognizedImages.length} 张收货单...`);
     setIsRecognizing(true);
