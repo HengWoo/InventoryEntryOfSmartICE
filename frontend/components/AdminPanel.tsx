@@ -1,5 +1,11 @@
 /**
  * 管理员面板主组件
+ * v2.6 - 跨门店采购汇总明细优化：
+ *   - 移动端表格优化：隐藏供应商和日期列，减少换行
+ *   - 添加"展开全部"功能，可查看所有记录
+ *   - 切换门店时自动重置展开状态
+ *   - 所有列添加 whitespace-nowrap 防止换行
+ *
  * v2.5 - 表单弹窗下拉框统一使用 GlassSelect：
  *   - 新增/编辑供应商的品牌选择使用 GlassSelect
  *   - 新增/编辑物料的品牌/分类/单位选择使用 GlassSelect
@@ -84,6 +90,7 @@ export const AdminPanel: React.FC = () => {
   const [alertRestaurantFilter, setAlertRestaurantFilter] = useState<string | undefined>(undefined);
   const [reportDays, setReportDays] = useState<number>(30);
   const [expandedRestaurantId, setExpandedRestaurantId] = useState<string | null>(null);
+  const [showAllDetails, setShowAllDetails] = useState(false); // 是否展开全部明细
 
   // v2.3: 搜索状态
   const [supplierSearch, setSupplierSearch] = useState('');
@@ -688,9 +695,14 @@ export const AdminPanel: React.FC = () => {
                     <React.Fragment key={report.restaurant_id || report.restaurant_name}>
                       <tr
                         className="border-b border-white/5 cursor-pointer hover:bg-white/5 transition-colors"
-                        onClick={() => setExpandedRestaurantId(
-                          expandedRestaurantId === report.restaurant_id ? null : report.restaurant_id
-                        )}
+                        onClick={() => {
+                          if (expandedRestaurantId === report.restaurant_id) {
+                            setExpandedRestaurantId(null);
+                          } else {
+                            setExpandedRestaurantId(report.restaurant_id);
+                            setShowAllDetails(false); // 切换门店时重置展开状态
+                          }
+                        }}
                       >
                         <td className="py-3 pr-2 text-white/50">
                           <Icons.ChevronDown
@@ -708,47 +720,62 @@ export const AdminPanel: React.FC = () => {
                       {expandedRestaurantId === report.restaurant_id && (
                         <tr>
                           <td colSpan={4} className="p-0">
-                            <div className="bg-white/5 p-4 border-b border-white/10">
+                            <div className="bg-white/5 px-2 py-3 md:p-4 border-b border-white/10">
                               {detailsLoading ? (
                                 <div className="text-center py-4 text-white/40 text-sm">加载明细中...</div>
                               ) : restaurantDetails.length === 0 ? (
                                 <div className="text-center py-4 text-white/40 text-sm">暂无采购明细</div>
                               ) : (
-                                <table className="w-full text-xs">
-                                  <thead>
-                                    <tr className="text-left text-white/40 border-b border-white/10">
-                                      <th className="pb-2 font-medium">物料</th>
-                                      <th className="pb-2 font-medium">供应商</th>
-                                      <th className="pb-2 font-medium text-right">数量</th>
-                                      <th className="pb-2 font-medium text-right">单价</th>
-                                      <th className="pb-2 font-medium text-right">金额</th>
-                                      <th className="pb-2 font-medium text-right">日期</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {restaurantDetails.slice(0, 10).map((detail) => (
-                                      <tr key={detail.id} className="border-b border-white/5 last:border-0">
-                                        <td className="py-2 text-white/80">{detail.item_name}</td>
-                                        <td className="py-2 text-white/60">{detail.supplier_name || '-'}</td>
-                                        <td className="py-2 text-right text-white/60">
-                                          {detail.quantity} {detail.unit_name || ''}
-                                        </td>
-                                        <td className="py-2 text-right text-white/60">
-                                          {detail.unit_price ? `¥${detail.unit_price.toFixed(2)}` : '-'}
-                                        </td>
-                                        <td className="py-2 text-right text-white/80">
-                                          {detail.total_amount ? `¥${detail.total_amount.toFixed(2)}` : '-'}
-                                        </td>
-                                        <td className="py-2 text-right text-white/50">{formatDate(detail.price_date)}</td>
+                                <div className="overflow-x-auto">
+                                  <table className="w-full text-xs">
+                                    <thead>
+                                      <tr className="text-left text-white/40 border-b border-white/10">
+                                        <th className="pb-2 pr-2 font-medium whitespace-nowrap">物料</th>
+                                        <th className="pb-2 pr-2 font-medium whitespace-nowrap hidden md:table-cell">供应商</th>
+                                        <th className="pb-2 pr-2 font-medium text-right whitespace-nowrap">数量</th>
+                                        <th className="pb-2 pr-2 font-medium text-right whitespace-nowrap">单价</th>
+                                        <th className="pb-2 pr-2 font-medium text-right whitespace-nowrap">金额</th>
+                                        <th className="pb-2 font-medium text-right whitespace-nowrap hidden md:table-cell">日期</th>
                                       </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
+                                    </thead>
+                                    <tbody>
+                                      {(showAllDetails ? restaurantDetails.slice(0, 90) : restaurantDetails.slice(0, 10)).map((detail) => (
+                                        <tr key={detail.id} className="border-b border-white/5 last:border-0">
+                                          <td className="py-2 pr-2 text-white/80 whitespace-nowrap max-w-[100px] truncate">{detail.item_name}</td>
+                                          <td className="py-2 pr-2 text-white/60 whitespace-nowrap hidden md:table-cell">{detail.supplier_name || '-'}</td>
+                                          <td className="py-2 pr-2 text-right text-white/60 whitespace-nowrap">
+                                            {detail.quantity}{detail.unit_name ? ` ${detail.unit_name}` : ''}
+                                          </td>
+                                          <td className="py-2 pr-2 text-right text-white/60 whitespace-nowrap">
+                                            ¥{detail.unit_price?.toFixed(2) || '-'}
+                                          </td>
+                                          <td className="py-2 pr-2 text-right text-white/80 whitespace-nowrap">
+                                            ¥{detail.total_amount?.toFixed(2) || '-'}
+                                          </td>
+                                          <td className="py-2 text-right text-white/50 whitespace-nowrap hidden md:table-cell">{formatDate(detail.price_date)}</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                  {showAllDetails && restaurantDetails.length > 90 && (
+                                    <div className="text-center pt-3 text-white/40 text-xs">
+                                      最多显示 90 条，更多请联系管理员
+                                    </div>
+                                  )}
+                                </div>
                               )}
                               {restaurantDetails.length > 10 && (
-                                <div className="text-center pt-2 text-white/40 text-xs">
-                                  还有 {restaurantDetails.length - 10} 条记录...
-                                </div>
+                                <button
+                                  onClick={(e: React.MouseEvent) => {
+                                    e.stopPropagation();
+                                    setShowAllDetails(!showAllDetails);
+                                  }}
+                                  className="w-full text-center pt-3 text-ios-blue text-xs hover:text-ios-blue/80 transition-colors"
+                                >
+                                  {showAllDetails
+                                    ? '收起'
+                                    : `展开全部（还有 ${Math.min(restaurantDetails.length - 10, 80)} 条记录）`}
+                                </button>
                               )}
                             </div>
                           </td>
