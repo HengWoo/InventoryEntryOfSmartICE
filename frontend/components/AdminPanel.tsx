@@ -1,5 +1,10 @@
 /**
  * 管理员面板主组件
+ * v2.2 - 下拉框样式统一：
+ *   - 使用 appearance-none 移除浏览器默认样式
+ *   - 添加自定义下拉箭头图标
+ *   - 统一过滤器和表单下拉框样式
+ *
  * v2.1 - 移动端表格优化：
  *   - 用户/门店/供应商/物料列表使用卡片布局（移动端）
  *   - 桌面端保持表格布局
@@ -172,32 +177,57 @@ export const AdminPanel: React.FC = () => {
     </div>
   );
 
+  // 统一的下拉框样式组件 - v2.1: 自定义样式 + 下拉箭头
+  const selectBaseClass = "appearance-none bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-1 focus:ring-ios-blue cursor-pointer";
+  const selectSmallClass = `${selectBaseClass} px-3 py-1.5 pr-8 text-xs rounded-lg`;
+  const selectFullClass = `${selectBaseClass} w-full px-3 py-2 pr-10 text-sm rounded-lg`;
+
+  // 下拉箭头包装器
+  const SelectWrapper = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => (
+    <div className={`relative inline-block ${className}`}>
+      {children}
+      <Icons.ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-white/50 pointer-events-none" />
+    </div>
+  );
+
+  // 表单下拉框包装器（全宽）
+  const FormSelectWrapper = ({ children }: { children: React.ReactNode }) => (
+    <div className="relative">
+      {children}
+      <Icons.ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/50 pointer-events-none" />
+    </div>
+  );
+
   // 品牌过滤下拉框
   const BrandFilter = ({ value, onChange, label = "筛选品牌" }: { value: number | undefined; onChange: (v: number | undefined) => void; label?: string }) => (
-    <select
-      value={value || ''}
-      onChange={(e) => onChange(e.target.value ? Number(e.target.value) : undefined)}
-      className="px-3 py-1.5 text-xs rounded-lg bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-1 focus:ring-ios-blue"
-    >
-      <option value="">{label}</option>
-      {brands.map((b) => (
-        <option key={b.id} value={b.id}>{b.name}</option>
-      ))}
-    </select>
+    <SelectWrapper>
+      <select
+        value={value || ''}
+        onChange={(e) => onChange(e.target.value ? Number(e.target.value) : undefined)}
+        className={selectSmallClass}
+      >
+        <option value="">{label}</option>
+        {brands.map((b) => (
+          <option key={b.id} value={b.id}>{b.name}</option>
+        ))}
+      </select>
+    </SelectWrapper>
   );
 
   // 门店过滤下拉框
   const RestaurantFilter = ({ value, onChange }: { value: string | undefined; onChange: (v: string | undefined) => void }) => (
-    <select
-      value={value || ''}
-      onChange={(e) => onChange(e.target.value || undefined)}
-      className="px-3 py-1.5 text-xs rounded-lg bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-1 focus:ring-ios-blue"
-    >
-      <option value="">全部门店</option>
-      {restaurants.map((r) => (
-        <option key={r.id} value={r.id}>{r.restaurant_name}</option>
-      ))}
-    </select>
+    <SelectWrapper>
+      <select
+        value={value || ''}
+        onChange={(e) => onChange(e.target.value || undefined)}
+        className={selectSmallClass}
+      >
+        <option value="">全部门店</option>
+        {restaurants.map((r) => (
+          <option key={r.id} value={r.id}>{r.restaurant_name}</option>
+        ))}
+      </select>
+    </SelectWrapper>
   );
 
   // 日期范围选择器
@@ -1162,10 +1192,12 @@ export const AdminPanel: React.FC = () => {
                 </div>
                 <div>
                   <label className="block text-xs text-white/60 mb-1">品牌 *</label>
-                  <select name="brand_id" required className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-ios-blue">
-                    <option value="">选择品牌</option>
-                    {brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-                  </select>
+                  <FormSelectWrapper>
+                    <select name="brand_id" required className={selectFullClass}>
+                      <option value="">选择品牌</option>
+                      {brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                    </select>
+                  </FormSelectWrapper>
                 </div>
                 <div>
                   <label className="block text-xs text-white/60 mb-1">联系人</label>
@@ -1201,10 +1233,12 @@ export const AdminPanel: React.FC = () => {
                 </div>
                 <div>
                   <label className="block text-xs text-white/60 mb-1">品牌 *</label>
-                  <select name="brand_id" required defaultValue={editingSupplier.brand_id} className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-ios-blue">
-                    <option value="">选择品牌</option>
-                    {brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-                  </select>
+                  <FormSelectWrapper>
+                    <select name="brand_id" required defaultValue={editingSupplier.brand_id} className={selectFullClass}>
+                      <option value="">选择品牌</option>
+                      {brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                    </select>
+                  </FormSelectWrapper>
                 </div>
                 <div>
                   <label className="block text-xs text-white/60 mb-1">联系人</label>
@@ -1244,24 +1278,30 @@ export const AdminPanel: React.FC = () => {
                 </div>
                 <div>
                   <label className="block text-xs text-white/60 mb-1">品牌 *</label>
-                  <select name="brand_id" required className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-ios-blue">
-                    <option value="">选择品牌</option>
-                    {brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-                  </select>
+                  <FormSelectWrapper>
+                    <select name="brand_id" required className={selectFullClass}>
+                      <option value="">选择品牌</option>
+                      {brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                    </select>
+                  </FormSelectWrapper>
                 </div>
                 <div>
                   <label className="block text-xs text-white/60 mb-1">分类</label>
-                  <select name="category_id" className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-ios-blue">
-                    <option value="">选择分类</option>
-                    {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
+                  <FormSelectWrapper>
+                    <select name="category_id" className={selectFullClass}>
+                      <option value="">选择分类</option>
+                      {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  </FormSelectWrapper>
                 </div>
                 <div>
                   <label className="block text-xs text-white/60 mb-1">单位</label>
-                  <select name="base_unit_id" className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-ios-blue">
-                    <option value="">选择单位</option>
-                    {units.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-                  </select>
+                  <FormSelectWrapper>
+                    <select name="base_unit_id" className={selectFullClass}>
+                      <option value="">选择单位</option>
+                      {units.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                    </select>
+                  </FormSelectWrapper>
                 </div>
               </div>
               <div className="flex justify-end gap-2 mt-6">
@@ -1289,24 +1329,30 @@ export const AdminPanel: React.FC = () => {
                 </div>
                 <div>
                   <label className="block text-xs text-white/60 mb-1">品牌 *</label>
-                  <select name="brand_id" required defaultValue={editingMaterial.brand_id} className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-ios-blue">
-                    <option value="">选择品牌</option>
-                    {brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-                  </select>
+                  <FormSelectWrapper>
+                    <select name="brand_id" required defaultValue={editingMaterial.brand_id} className={selectFullClass}>
+                      <option value="">选择品牌</option>
+                      {brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                    </select>
+                  </FormSelectWrapper>
                 </div>
                 <div>
                   <label className="block text-xs text-white/60 mb-1">分类</label>
-                  <select name="category_id" defaultValue={editingMaterial.category_id || ''} className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-ios-blue">
-                    <option value="">选择分类</option>
-                    {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
+                  <FormSelectWrapper>
+                    <select name="category_id" defaultValue={editingMaterial.category_id || ''} className={selectFullClass}>
+                      <option value="">选择分类</option>
+                      {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  </FormSelectWrapper>
                 </div>
                 <div>
                   <label className="block text-xs text-white/60 mb-1">单位</label>
-                  <select name="base_unit_id" defaultValue={editingMaterial.base_unit_id || ''} className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-ios-blue">
-                    <option value="">选择单位</option>
-                    {units.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-                  </select>
+                  <FormSelectWrapper>
+                    <select name="base_unit_id" defaultValue={editingMaterial.base_unit_id || ''} className={selectFullClass}>
+                      <option value="">选择单位</option>
+                      {units.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                    </select>
+                  </FormSelectWrapper>
                 </div>
               </div>
               <div className="flex justify-end gap-2 mt-6">
