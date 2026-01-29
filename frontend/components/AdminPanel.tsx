@@ -1,5 +1,16 @@
 /**
  * 管理员面板主组件
+ * v2.5 - 表单弹窗下拉框统一使用 GlassSelect：
+ *   - 新增/编辑供应商的品牌选择使用 GlassSelect
+ *   - 新增/编辑物料的品牌/分类/单位选择使用 GlassSelect
+ *   - 移除原生 select 元素和 FormSelectWrapper
+ *   - 取消按钮重置表单状态
+ *
+ * v2.4 - 表单下拉框统一使用 GlassSelect：
+ *   - 新增/编辑供应商的品牌选择
+ *   - 新增/编辑物料的品牌/分类/单位选择
+ *   - 移除原生 select 元素
+ *
  * v2.3 - 重大功能更新：
  *   - 使用 GlassSelect 替代原生 select，统一下拉框样式
  *   - 供应商/物料列表添加搜索框
@@ -87,6 +98,11 @@ export const AdminPanel: React.FC = () => {
   // 表单状态
   const [formError, setFormError] = useState<string | null>(null);
   const [formLoading, setFormLoading] = useState(false);
+
+  // v2.4: 表单下拉框状态（用于 GlassSelect）
+  const [formBrandId, setFormBrandId] = useState<number | undefined>(undefined);
+  const [formCategoryId, setFormCategoryId] = useState<number | undefined>(undefined);
+  const [formUnitId, setFormUnitId] = useState<number | undefined>(undefined);
 
   // SWR hooks
   const { stats: overviewStats, isLoading: overviewLoading } = useAdminOverview();
@@ -237,17 +253,9 @@ export const AdminPanel: React.FC = () => {
   // v2.3: 使用 GlassSelect 替代原生 select - 品牌过滤
   const brandOptions = brands.map((b) => ({ value: b.id, label: b.name }));
   const restaurantOptions = restaurants.map((r) => ({ value: r.id, label: r.restaurant_name }));
-
-  // 表单下拉框样式（保留原生 select 用于表单提交）
-  const selectFullClass = "appearance-none w-full px-3 py-2 pr-10 text-sm rounded-lg bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-1 focus:ring-ios-blue cursor-pointer";
-
-  // 表单下拉框包装器（全宽）
-  const FormSelectWrapper = ({ children }: { children: React.ReactNode }) => (
-    <div className="relative">
-      {children}
-      <Icons.ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/50 pointer-events-none" />
-    </div>
-  );
+  // v2.4: 分类和单位选项
+  const categoryOptions = categories.map((c) => ({ value: c.id, label: c.name }));
+  const unitOptions = units.map((u) => ({ value: u.id, label: u.name }));
 
   // 品牌过滤下拉框（使用 GlassSelect）
   const BrandFilter = ({ value, onChange, label = "筛选品牌" }: { value: number | undefined; onChange: (v: number | undefined) => void; label?: string }) => (
@@ -306,7 +314,7 @@ export const AdminPanel: React.FC = () => {
       contact_person: formData.get('contact_person') as string || undefined,
       phone: formData.get('phone') as string || undefined,
       address: formData.get('address') as string || undefined,
-      brand_id: Number(formData.get('brand_id'))
+      brand_id: formBrandId || 0
     };
 
     if (!input.name || !input.brand_id) {
@@ -320,6 +328,7 @@ export const AdminPanel: React.FC = () => {
 
     if (result.success) {
       setModalType('none');
+      setFormBrandId(undefined); // 重置表单状态
     } else {
       setFormError(result.error || '添加失败');
     }
@@ -340,7 +349,7 @@ export const AdminPanel: React.FC = () => {
       contact_person: formData.get('contact_person') as string || undefined,
       phone: formData.get('phone') as string || undefined,
       address: formData.get('address') as string || undefined,
-      brand_id: Number(formData.get('brand_id'))
+      brand_id: formBrandId || editingSupplier.brand_id
     };
 
     const result = await editSupplier(editingSupplier.id, input);
@@ -349,6 +358,7 @@ export const AdminPanel: React.FC = () => {
     if (result.success) {
       setModalType('none');
       setEditingSupplier(null);
+      setFormBrandId(undefined); // 重置表单状态
     } else {
       setFormError(result.error || '更新失败');
     }
@@ -356,6 +366,7 @@ export const AdminPanel: React.FC = () => {
 
   // ============ 物料表单处理 ============
   // v2.3: 添加物料时自动生成编码
+  // v2.4: 使用 formBrandId/formCategoryId/formUnitId 状态
   const handleAddMaterial = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setFormError(null);
@@ -364,7 +375,7 @@ export const AdminPanel: React.FC = () => {
     const form = e.currentTarget;
     const formData = new FormData(form);
 
-    const brandId = Number(formData.get('brand_id'));
+    const brandId = formBrandId || 0;
     let code = formData.get('code') as string;
 
     // 如果编码为空，自动生成
@@ -375,8 +386,8 @@ export const AdminPanel: React.FC = () => {
     const input: MaterialInput = {
       code,
       name: formData.get('name') as string,
-      category_id: Number(formData.get('category_id')) || 0,
-      base_unit_id: Number(formData.get('base_unit_id')) || 0,
+      category_id: formCategoryId || 0,
+      base_unit_id: formUnitId || 0,
       brand_id: brandId
     };
 
@@ -391,6 +402,10 @@ export const AdminPanel: React.FC = () => {
 
     if (result.success) {
       setModalType('none');
+      // 重置表单状态
+      setFormBrandId(undefined);
+      setFormCategoryId(undefined);
+      setFormUnitId(undefined);
     } else {
       setFormError(result.error || '添加失败');
     }
@@ -409,9 +424,9 @@ export const AdminPanel: React.FC = () => {
     const input: Partial<MaterialInput> = {
       code: formData.get('code') as string,
       name: formData.get('name') as string,
-      category_id: Number(formData.get('category_id')),
-      base_unit_id: Number(formData.get('base_unit_id')),
-      brand_id: Number(formData.get('brand_id'))
+      category_id: formCategoryId ?? editingMaterial.category_id,
+      base_unit_id: formUnitId ?? editingMaterial.base_unit_id,
+      brand_id: formBrandId ?? editingMaterial.brand_id
     };
 
     const result = await editMaterial(editingMaterial.id, input);
@@ -420,6 +435,10 @@ export const AdminPanel: React.FC = () => {
     if (result.success) {
       setModalType('none');
       setEditingMaterial(null);
+      // 重置表单状态
+      setFormBrandId(undefined);
+      setFormCategoryId(undefined);
+      setFormUnitId(undefined);
     } else {
       setFormError(result.error || '更新失败');
     }
@@ -1088,6 +1107,10 @@ export const AdminPanel: React.FC = () => {
                             base_unit_id: mat.base_unit_id,
                             brand_id: mat.brand_id
                           });
+                          // 重置表单状态，让 GlassSelect 使用 editingMaterial 的值
+                          setFormBrandId(undefined);
+                          setFormCategoryId(undefined);
+                          setFormUnitId(undefined);
                           setFormError(null);
                           setModalType('edit-material');
                         }}
@@ -1149,6 +1172,10 @@ export const AdminPanel: React.FC = () => {
                                 base_unit_id: mat.base_unit_id,
                                 brand_id: mat.brand_id
                               });
+                              // 重置表单状态，让 GlassSelect 使用 editingMaterial 的值
+                              setFormBrandId(undefined);
+                              setFormCategoryId(undefined);
+                              setFormUnitId(undefined);
                               setFormError(null);
                               setModalType('edit-material');
                             }}
@@ -1266,12 +1293,13 @@ export const AdminPanel: React.FC = () => {
                 </div>
                 <div>
                   <label className="block text-xs text-white/60 mb-1">品牌 *</label>
-                  <FormSelectWrapper>
-                    <select name="brand_id" required className={selectFullClass}>
-                      <option value="">选择品牌</option>
-                      {brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-                    </select>
-                  </FormSelectWrapper>
+                  <GlassSelect
+                    options={brandOptions}
+                    value={formBrandId}
+                    onChange={(v) => setFormBrandId(v as number | undefined)}
+                    placeholder="选择品牌"
+                    className="w-full"
+                  />
                 </div>
                 <div>
                   <label className="block text-xs text-white/60 mb-1">联系人</label>
@@ -1307,12 +1335,13 @@ export const AdminPanel: React.FC = () => {
                 </div>
                 <div>
                   <label className="block text-xs text-white/60 mb-1">品牌 *</label>
-                  <FormSelectWrapper>
-                    <select name="brand_id" required defaultValue={editingSupplier.brand_id} className={selectFullClass}>
-                      <option value="">选择品牌</option>
-                      {brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-                    </select>
-                  </FormSelectWrapper>
+                  <GlassSelect
+                    options={brandOptions}
+                    value={formBrandId ?? editingSupplier.brand_id}
+                    onChange={(v) => setFormBrandId(v as number | undefined)}
+                    placeholder="选择品牌"
+                    className="w-full"
+                  />
                 </div>
                 <div>
                   <label className="block text-xs text-white/60 mb-1">联系人</label>
@@ -1328,7 +1357,7 @@ export const AdminPanel: React.FC = () => {
                 </div>
               </div>
               <div className="flex justify-end gap-2 mt-6">
-                <button type="button" onClick={() => { setModalType('none'); setEditingSupplier(null); }} className="px-4 py-2 text-sm text-white/60 hover:text-white transition-colors">取消</button>
+                <button type="button" onClick={() => { setModalType('none'); setEditingSupplier(null); setFormBrandId(undefined); }} className="px-4 py-2 text-sm text-white/60 hover:text-white transition-colors">取消</button>
                 <button type="submit" disabled={formLoading} className="px-4 py-2 text-sm bg-ios-blue text-white rounded-lg hover:bg-ios-blue/80 transition-colors disabled:opacity-50">
                   {formLoading ? '保存中...' : '保存'}
                 </button>
@@ -1352,34 +1381,37 @@ export const AdminPanel: React.FC = () => {
                 </div>
                 <div>
                   <label className="block text-xs text-white/60 mb-1">品牌 *</label>
-                  <FormSelectWrapper>
-                    <select name="brand_id" required className={selectFullClass}>
-                      <option value="">选择品牌</option>
-                      {brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-                    </select>
-                  </FormSelectWrapper>
+                  <GlassSelect
+                    options={brandOptions}
+                    value={formBrandId}
+                    onChange={(v) => setFormBrandId(v as number | undefined)}
+                    placeholder="选择品牌"
+                    className="w-full"
+                  />
                 </div>
                 <div>
                   <label className="block text-xs text-white/60 mb-1">分类</label>
-                  <FormSelectWrapper>
-                    <select name="category_id" className={selectFullClass}>
-                      <option value="">选择分类</option>
-                      {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    </select>
-                  </FormSelectWrapper>
+                  <GlassSelect
+                    options={categoryOptions}
+                    value={formCategoryId}
+                    onChange={(v) => setFormCategoryId(v as number | undefined)}
+                    placeholder="选择分类"
+                    className="w-full"
+                  />
                 </div>
                 <div>
                   <label className="block text-xs text-white/60 mb-1">单位</label>
-                  <FormSelectWrapper>
-                    <select name="base_unit_id" className={selectFullClass}>
-                      <option value="">选择单位</option>
-                      {units.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-                    </select>
-                  </FormSelectWrapper>
+                  <GlassSelect
+                    options={unitOptions}
+                    value={formUnitId}
+                    onChange={(v) => setFormUnitId(v as number | undefined)}
+                    placeholder="选择单位"
+                    className="w-full"
+                  />
                 </div>
               </div>
               <div className="flex justify-end gap-2 mt-6">
-                <button type="button" onClick={() => setModalType('none')} className="px-4 py-2 text-sm text-white/60 hover:text-white transition-colors">取消</button>
+                <button type="button" onClick={() => { setModalType('none'); setFormBrandId(undefined); setFormCategoryId(undefined); setFormUnitId(undefined); }} className="px-4 py-2 text-sm text-white/60 hover:text-white transition-colors">取消</button>
                 <button type="submit" disabled={formLoading} className="px-4 py-2 text-sm bg-ios-blue text-white rounded-lg hover:bg-ios-blue/80 transition-colors disabled:opacity-50">
                   {formLoading ? '提交中...' : '添加'}
                 </button>
@@ -1403,34 +1435,37 @@ export const AdminPanel: React.FC = () => {
                 </div>
                 <div>
                   <label className="block text-xs text-white/60 mb-1">品牌 *</label>
-                  <FormSelectWrapper>
-                    <select name="brand_id" required defaultValue={editingMaterial.brand_id} className={selectFullClass}>
-                      <option value="">选择品牌</option>
-                      {brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-                    </select>
-                  </FormSelectWrapper>
+                  <GlassSelect
+                    options={brandOptions}
+                    value={formBrandId ?? editingMaterial.brand_id}
+                    onChange={(v) => setFormBrandId(v as number | undefined)}
+                    placeholder="选择品牌"
+                    className="w-full"
+                  />
                 </div>
                 <div>
                   <label className="block text-xs text-white/60 mb-1">分类</label>
-                  <FormSelectWrapper>
-                    <select name="category_id" defaultValue={editingMaterial.category_id || ''} className={selectFullClass}>
-                      <option value="">选择分类</option>
-                      {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    </select>
-                  </FormSelectWrapper>
+                  <GlassSelect
+                    options={categoryOptions}
+                    value={formCategoryId ?? editingMaterial.category_id}
+                    onChange={(v) => setFormCategoryId(v as number | undefined)}
+                    placeholder="选择分类"
+                    className="w-full"
+                  />
                 </div>
                 <div>
                   <label className="block text-xs text-white/60 mb-1">单位</label>
-                  <FormSelectWrapper>
-                    <select name="base_unit_id" defaultValue={editingMaterial.base_unit_id || ''} className={selectFullClass}>
-                      <option value="">选择单位</option>
-                      {units.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-                    </select>
-                  </FormSelectWrapper>
+                  <GlassSelect
+                    options={unitOptions}
+                    value={formUnitId ?? editingMaterial.base_unit_id}
+                    onChange={(v) => setFormUnitId(v as number | undefined)}
+                    placeholder="选择单位"
+                    className="w-full"
+                  />
                 </div>
               </div>
               <div className="flex justify-end gap-2 mt-6">
-                <button type="button" onClick={() => { setModalType('none'); setEditingMaterial(null); }} className="px-4 py-2 text-sm text-white/60 hover:text-white transition-colors">取消</button>
+                <button type="button" onClick={() => { setModalType('none'); setEditingMaterial(null); setFormBrandId(undefined); setFormCategoryId(undefined); setFormUnitId(undefined); }} className="px-4 py-2 text-sm text-white/60 hover:text-white transition-colors">取消</button>
                 <button type="submit" disabled={formLoading} className="px-4 py-2 text-sm bg-ios-blue text-white rounded-lg hover:bg-ios-blue/80 transition-colors disabled:opacity-50">
                   {formLoading ? '保存中...' : '保存'}
                 </button>
