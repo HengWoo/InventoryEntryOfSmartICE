@@ -1,3 +1,7 @@
+// v6.3.0 - 管理员面板修改密码事件监听 + 响应式设计修复
+// v6.2.0 - 管理员面板独立布局，移除主侧边栏，标题改为"门店管家"
+// v6.1.0 - 管理员登录默认进入管理控制台 + SWR 缓存优化
+// v6.0.0 - 添加管理员面板入口，根据角色显示
 // v5.1.0 - 添加上传进度 Banner，提醒用户不要关闭页面
 // v5.0.0 - 添加上传状态 Banner，显示异步上传进度和结果
 // v4.3.0 - 添加版本检测，每 10 分钟轮询检查新版本并提示用户刷新
@@ -18,6 +22,7 @@ import { LoginPage } from './components/LoginPage';
 import { ChangePasswordPage } from './components/ChangePasswordPage';
 import { QueueHistoryPage } from './components/QueueHistoryPage';
 import { Memo } from './components/Memo';
+import { AdminPanel } from './components/AdminPanel';
 import { UpdateBanner } from './components/ui/UpdateBanner';
 import { UploadStatusBanner, UploadStatus } from './components/UploadStatusBanner';
 import { UploadProgressBanner } from './components/UploadProgressBanner';
@@ -34,7 +39,9 @@ const AppContent: React.FC = () => {
   const { user, isAuthenticated, isLoading } = useAuth();
   // 预加载在后台静默进行，不阻塞 UI
   const { error: preloadError } = usePreloadData();
+
   const [currentView, setCurrentView] = useState<AppView>(AppView.DASHBOARD);
+  const [hasRedirectedAdmin, setHasRedirectedAdmin] = useState(false);
   const [logs, setLogs] = useState<DailyLog[]>([]);
   const [logsLoading, setLogsLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -43,6 +50,25 @@ const AppContent: React.FC = () => {
   // v5.0: 上传状态 Banner
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>(null);
   const lastQueueIdRef = useRef<string | null>(null);
+
+  // v6.1: 管理员登录后自动跳转到管理控制台（仅首次）
+  useEffect(() => {
+    if (isAuthenticated && user?.role === 'administrator' && !hasRedirectedAdmin) {
+      setCurrentView(AppView.ADMIN_OVERVIEW);
+      setHasRedirectedAdmin(true);
+    }
+  }, [isAuthenticated, user?.role, hasRedirectedAdmin]);
+
+  // v6.3: 监听管理员面板的修改密码事件
+  useEffect(() => {
+    const handleAdminChangePassword = () => {
+      setCurrentView(AppView.CHANGE_PASSWORD);
+    };
+    window.addEventListener('admin-change-password', handleAdminChangePassword);
+    return () => {
+      window.removeEventListener('admin-change-password', handleAdminChangePassword);
+    };
+  }, []);
 
   // 从数据库加载采购记录
   useEffect(() => {
@@ -173,6 +199,9 @@ const AppContent: React.FC = () => {
   };
 
   // 已登录显示主应用
+  // 管理员在管理面板时，使用独立全屏布局
+  const isAdminView = currentView === AppView.ADMIN_OVERVIEW;
+
   return (
     <div className="fixed inset-0 flex text-primary font-sans overflow-hidden">
       {/* 版本更新提示横幅 */}
@@ -194,41 +223,51 @@ const AppContent: React.FC = () => {
       {/* v5.1: 上传进度 Banner - 提醒用户不要关闭页面 */}
       <UploadProgressBanner currentPage={currentView === AppView.HISTORY ? 'history' : undefined} />
 
-      <Sidebar
-        currentView={currentView}
-        onChangeView={setCurrentView}
-        isOpen={sidebarOpen}
-        toggleSidebar={() => setSidebarOpen(!sidebarOpen)}
-        onChangePassword={() => setCurrentView(AppView.CHANGE_PASSWORD)}
-      />
+      {/* v6.2: 管理员面板时不显示主侧边栏 */}
+      {!isAdminView && (
+        <Sidebar
+          currentView={currentView}
+          onChangeView={setCurrentView}
+          isOpen={sidebarOpen}
+          toggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+          onChangePassword={() => setCurrentView(AppView.CHANGE_PASSWORD)}
+        />
+      )}
 
-      <div className="flex-1 flex flex-col h-full relative w-full">
-        {/* Mobile Header Button - Storm Glass */}
-        {currentView !== AppView.NEW_ENTRY && currentView !== AppView.CHANGE_PASSWORD && (
-          <div className="md:hidden pt-6 px-4 pb-2 flex items-center justify-between">
-             <span className="text-xl font-bold text-white">门店管家</span>
-             <button onClick={() => setSidebarOpen(true)} className="p-2 text-white/70 hover:text-white">
-               <Icons.Menu className="w-6 h-6" />
-             </button>
-          </div>
-        )}
+      {/* v6.2: 管理员面板独立全屏布局 */}
+      {isAdminView ? (
+        <div className="flex-1 h-full overflow-hidden">
+          <AdminPanel />
+        </div>
+      ) : (
+        <div className="flex-1 flex flex-col h-full relative w-full">
+          {/* Mobile Header Button - Storm Glass */}
+          {currentView !== AppView.NEW_ENTRY && currentView !== AppView.CHANGE_PASSWORD && (
+            <div className="md:hidden pt-6 px-4 pb-2 flex items-center justify-between">
+               <span className="text-xl font-bold text-white">门店管家</span>
+               <button onClick={() => setSidebarOpen(true)} className="p-2 text-white/70 hover:text-white">
+                 <Icons.Menu className="w-6 h-6" />
+               </button>
+            </div>
+          )}
 
-        <main className={`flex-1 ${currentView === AppView.DASHBOARD ? 'overflow-hidden' : 'overflow-y-auto'} ${currentView === AppView.NEW_ENTRY || currentView === AppView.CHANGE_PASSWORD || currentView === AppView.HISTORY ? 'p-0' : 'p-4 md:p-8'} max-w-5xl mx-auto w-full`}>
-            {currentView === AppView.DASHBOARD && (
-              logsLoading ? (
-                <div className="h-full flex items-center justify-center">
-                  <div className="text-white/70">加载数据中...</div>
-                </div>
-              ) : (
-                <Dashboard logs={logs} restaurantId={user?.restaurant_id} />
-              )
-            )}
-            {currentView === AppView.NEW_ENTRY && <EntryForm onSave={handleSaveEntry} userName={CURRENT_USER_NAME} userNickname={CURRENT_USER_NICKNAME} onOpenMenu={() => setSidebarOpen(true)} />}
-            {currentView === AppView.HISTORY && <QueueHistoryPage onBack={() => setCurrentView(AppView.DASHBOARD)} />}
-            {currentView === AppView.CHANGE_PASSWORD && <ChangePasswordPage onBack={() => setCurrentView(AppView.DASHBOARD)} />}
-            {currentView === AppView.MEMO && <Memo />}
-        </main>
-      </div>
+          <main className={`flex-1 ${currentView === AppView.DASHBOARD ? 'overflow-hidden' : 'overflow-y-auto'} ${currentView === AppView.NEW_ENTRY || currentView === AppView.CHANGE_PASSWORD || currentView === AppView.HISTORY ? 'p-0' : 'p-4 md:p-8'} max-w-5xl mx-auto w-full`}>
+              {currentView === AppView.DASHBOARD && (
+                logsLoading ? (
+                  <div className="h-full flex items-center justify-center">
+                    <div className="text-white/70">加载数据中...</div>
+                  </div>
+                ) : (
+                  <Dashboard logs={logs} restaurantId={user?.restaurant_id} />
+                )
+              )}
+              {currentView === AppView.NEW_ENTRY && <EntryForm onSave={handleSaveEntry} userName={CURRENT_USER_NAME} userNickname={CURRENT_USER_NICKNAME} onOpenMenu={() => setSidebarOpen(true)} />}
+              {currentView === AppView.HISTORY && <QueueHistoryPage onBack={() => setCurrentView(AppView.DASHBOARD)} />}
+              {currentView === AppView.CHANGE_PASSWORD && <ChangePasswordPage onBack={() => setCurrentView(AppView.DASHBOARD)} />}
+              {currentView === AppView.MEMO && <Memo />}
+          </main>
+        </div>
+      )}
     </div>
   );
 };

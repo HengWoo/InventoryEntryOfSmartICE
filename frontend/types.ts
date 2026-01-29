@@ -64,6 +64,50 @@ export enum AppView {
   HISTORY = 'HISTORY',
   CHANGE_PASSWORD = 'CHANGE_PASSWORD',
   MEMO = 'MEMO',
+  // 管理员面板视图
+  ADMIN_OVERVIEW = 'ADMIN_OVERVIEW',
+  ADMIN_MONITORING = 'ADMIN_MONITORING',
+  ADMIN_ALERTS = 'ADMIN_ALERTS',
+  ADMIN_REPORTS = 'ADMIN_REPORTS',
+  ADMIN_VIEW_USERS = 'ADMIN_VIEW_USERS',
+  ADMIN_VIEW_RESTAURANTS = 'ADMIN_VIEW_RESTAURANTS',
+  ADMIN_VIEW_SUPPLIERS = 'ADMIN_VIEW_SUPPLIERS',
+  ADMIN_VIEW_MATERIALS = 'ADMIN_VIEW_MATERIALS',
+}
+
+// 管理员面板 - 异常告警类型
+export interface PriceAlert {
+  id: string;
+  material_name: string;
+  restaurant_name: string;
+  old_price: number;
+  new_price: number;
+  change_percent: number;
+  detected_at: string;
+  status: 'pending' | 'acknowledged' | 'dismissed';
+}
+
+// 管理员面板 - 门店录入状态
+export interface RestaurantEntryStatus {
+  restaurant_id: string;
+  restaurant_name: string;
+  last_entry_date: string | null;
+  days_since_entry: number;
+  entry_count_today: number;
+  entry_count_week: number;
+  status: 'active' | 'warning' | 'critical';
+}
+
+// 管理员面板 - 用户信息（只读）
+export interface AdminUserView {
+  id: string;
+  username: string;
+  employee_name: string;
+  role_code: string;
+  restaurant_name: string;
+  last_login: string | null;
+  is_active: boolean;
+  entry_count_30d: number;
 }
 
 // 备忘录类型

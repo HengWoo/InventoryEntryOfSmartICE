@@ -1,8 +1,10 @@
 /**
  * 侧边栏导航组件
+ * v3.0 - 添加管理控制台入口（仅 administrator 角色可见）
  * v2.3 - 使用 nickname 首字作为头像显示
  *
  * 变更：
+ * - v3.0: 添加管理控制台入口，仅对 administrator 角色显示
  * - v2.3: 头像显示昵称首字（如"辉"），更亲切
  * - v2.2: 分离移动端/桌面端 ref，添加 z-index 和 stopPropagation 修复点击问题
  * - v2.1: 用户菜单添加"修改密码"选项
@@ -66,6 +68,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: AppView.HISTORY, label: '历史记录', icon: Icons.Clock },
     { id: AppView.MEMO, label: '备忘录', icon: Icons.ClipboardList },
   ];
+
+  // 管理员专属菜单项（仅 administrator 角色可见）
+  const isAdmin = user?.role === 'administrator';
+  const adminNavItems = isAdmin ? [
+    { id: AppView.ADMIN_OVERVIEW, label: '管理控制台', icon: Icons.Cog },
+  ] : [];
 
   // 获取头像显示字符：优先使用昵称首字，否则用姓名首字
   const getAvatarChar = () => {
@@ -162,6 +170,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <span className="font-medium">{item.label}</span>
                 </button>
              ))}
+             {/* 管理员菜单分隔线和入口 */}
+             {adminNavItems.length > 0 && (
+               <>
+                 <div className="border-t border-white/10 my-3 mx-4" />
+                 {adminNavItems.map((item) => (
+                   <button
+                     key={item.id}
+                     onClick={() => { onChangeView(item.id); toggleSidebar(); }}
+                     className="w-full flex items-center gap-3 px-4 py-3 rounded-glass-lg transition-all"
+                     style={{
+                       background: currentView === item.id ? 'rgba(147,112,219,0.2)' : 'transparent',
+                       color: currentView === item.id ? '#C4B5FD' : 'rgba(196,181,253,0.7)',
+                       border: currentView === item.id ? '1px solid rgba(147,112,219,0.3)' : '1px solid transparent'
+                     }}
+                   >
+                     <item.icon className="w-5 h-5" />
+                     <span className="font-medium">{item.label}</span>
+                   </button>
+                 ))}
+               </>
+             )}
            </nav>
 
            {/* User Profile - Mobile */}
@@ -227,6 +256,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <span className="font-semibold">{item.label}</span>
             </button>
           ))}
+          {/* 管理员菜单分隔线和入口 */}
+          {adminNavItems.length > 0 && (
+            <>
+              <div className="border-t border-white/10 my-3" />
+              <div className="text-[10px] text-white/40 uppercase tracking-wider px-4 pb-1">管理功能</div>
+              {adminNavItems.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => onChangeView(item.id)}
+                  className={`
+                    w-full group flex items-center gap-4 px-4 py-3.5 rounded-glass-xl transition-all duration-200
+                    ${currentView === item.id
+                      ? 'text-purple-300 border border-purple-500/30'
+                      : 'text-purple-300/70 hover:text-purple-300 hover:bg-purple-500/10'}
+                  `}
+                  style={currentView === item.id ? { background: 'rgba(147,112,219,0.15)' } : {}}
+                >
+                  <item.icon className={`w-5 h-5 transition-colors ${currentView === item.id ? 'text-purple-300' : ''}`} />
+                  <span className="font-semibold">{item.label}</span>
+                </button>
+              ))}
+            </>
+          )}
         </nav>
 
         {/* User Profile - Bottom (Desktop) */}
