@@ -1,5 +1,10 @@
 /**
  * 管理员面板主组件
+ * v2.1 - 移动端表格优化：
+ *   - 用户/门店/供应商/物料列表使用卡片布局（移动端）
+ *   - 桌面端保持表格布局
+ *   - 响应式设计：md 断点切换
+ *
  * v2.0 - 完整功能重构：
  *   - 删除 duty_manager 角色显示
  *   - 供应商：品牌过滤 + CRUD（增删改）
@@ -467,25 +472,25 @@ export const AdminPanel: React.FC = () => {
     return (
       <GlassCard padding="md">
         <h3 className="text-base font-bold text-white mb-4">各门店录入状态</h3>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+        <div className="overflow-x-auto -mx-4 px-4">
+          <table className="w-full text-sm min-w-[500px]">
             <thead>
               <tr className="text-left text-white/50 border-b border-white/10">
-                <th className="pb-3 font-medium">状态</th>
-                <th className="pb-3 font-medium">门店</th>
-                <th className="pb-3 font-medium text-right">今日</th>
-                <th className="pb-3 font-medium text-right">本周</th>
-                <th className="pb-3 font-medium text-right">最后录入</th>
+                <th className="pb-3 font-medium whitespace-nowrap">状态</th>
+                <th className="pb-3 font-medium whitespace-nowrap">门店</th>
+                <th className="pb-3 font-medium text-right whitespace-nowrap">今日</th>
+                <th className="pb-3 font-medium text-right whitespace-nowrap">本周</th>
+                <th className="pb-3 font-medium text-right whitespace-nowrap">最后录入</th>
               </tr>
             </thead>
             <tbody>
               {entryStatus.map((rest) => (
                 <tr key={rest.restaurant_id} className="border-b border-white/5 last:border-0">
-                  <td className="py-3"><StatusBadge status={rest.status} /></td>
-                  <td className="py-3 text-white">{rest.restaurant_name}</td>
-                  <td className="py-3 text-right text-white/70">{rest.entry_count_today}</td>
-                  <td className="py-3 text-right text-white/70">{rest.entry_count_week}</td>
-                  <td className="py-3 text-right text-white/50">
+                  <td className="py-3 pr-3 whitespace-nowrap"><StatusBadge status={rest.status} /></td>
+                  <td className="py-3 pr-4 text-white whitespace-nowrap">{rest.restaurant_name}</td>
+                  <td className="py-3 pr-4 text-right text-white/70 whitespace-nowrap">{rest.entry_count_today}</td>
+                  <td className="py-3 pr-4 text-right text-white/70 whitespace-nowrap">{rest.entry_count_week}</td>
+                  <td className="py-3 text-right text-white/50 whitespace-nowrap">
                     {rest.last_entry_date ? formatDate(rest.last_entry_date) : '-'}
                   </td>
                 </tr>
@@ -520,29 +525,29 @@ export const AdminPanel: React.FC = () => {
             <p>暂无价格异常</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          <div className="overflow-x-auto -mx-4 px-4">
+            <table className="w-full text-sm min-w-[600px]">
               <thead>
                 <tr className="text-left text-white/50 border-b border-white/10">
-                  <th className="pb-3 font-medium">物料</th>
-                  <th className="pb-3 font-medium">门店</th>
-                  <th className="pb-3 font-medium text-right">原价</th>
-                  <th className="pb-3 font-medium text-right">现价</th>
-                  <th className="pb-3 font-medium text-right">波动</th>
-                  <th className="pb-3 font-medium text-right">检测日期</th>
+                  <th className="pb-3 pr-4 font-medium whitespace-nowrap">物料</th>
+                  <th className="pb-3 pr-4 font-medium whitespace-nowrap">门店</th>
+                  <th className="pb-3 pr-4 font-medium text-right whitespace-nowrap">原价</th>
+                  <th className="pb-3 pr-4 font-medium text-right whitespace-nowrap">现价</th>
+                  <th className="pb-3 pr-4 font-medium text-right whitespace-nowrap">波动</th>
+                  <th className="pb-3 font-medium text-right whitespace-nowrap">日期</th>
                 </tr>
               </thead>
               <tbody>
                 {priceAlerts.map((alert) => (
                   <tr key={alert.id} className="border-b border-white/5 last:border-0">
-                    <td className="py-3 text-white">{alert.material_name}</td>
-                    <td className="py-3 text-white/70">{alert.restaurant_name}</td>
-                    <td className="py-3 text-right text-white/50">¥{alert.old_price.toFixed(2)}</td>
-                    <td className="py-3 text-right text-white">¥{alert.new_price.toFixed(2)}</td>
-                    <td className={`py-3 text-right font-medium ${alert.change_percent > 0 ? 'text-ios-red' : 'text-ios-green'}`}>
-                      {alert.change_percent > 0 ? '↑' : '↓'} {Math.abs(alert.change_percent).toFixed(1)}%
+                    <td className="py-3 pr-4 text-white whitespace-nowrap">{alert.material_name}</td>
+                    <td className="py-3 pr-4 text-white/70 whitespace-nowrap">{alert.restaurant_name}</td>
+                    <td className="py-3 pr-4 text-right text-white/50 whitespace-nowrap">¥{alert.old_price.toFixed(2)}</td>
+                    <td className="py-3 pr-4 text-right text-white whitespace-nowrap">¥{alert.new_price.toFixed(2)}</td>
+                    <td className={`py-3 pr-4 text-right font-medium whitespace-nowrap ${alert.change_percent > 0 ? 'text-ios-red' : 'text-ios-green'}`}>
+                      {alert.change_percent > 0 ? '↑' : '↓'}{Math.abs(alert.change_percent).toFixed(1)}%
                     </td>
-                    <td className="py-3 text-right text-white/50">{formatDate(alert.detected_at)}</td>
+                    <td className="py-3 text-right text-white/50 whitespace-nowrap">{formatDate(alert.detected_at)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -565,14 +570,14 @@ export const AdminPanel: React.FC = () => {
         {reportLoading && crossReport.length === 0 ? (
           <LoadingSpinner />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          <div className="overflow-x-auto -mx-4 px-4">
+            <table className="w-full text-sm min-w-[400px]">
               <thead>
                 <tr className="text-left text-white/50 border-b border-white/10">
-                  <th className="pb-3 font-medium w-8"></th>
-                  <th className="pb-3 font-medium">门店</th>
-                  <th className="pb-3 font-medium text-right">采购总额</th>
-                  <th className="pb-3 font-medium text-right">录入次数</th>
+                  <th className="pb-3 pr-2 font-medium w-8"></th>
+                  <th className="pb-3 pr-4 font-medium whitespace-nowrap">门店</th>
+                  <th className="pb-3 pr-4 font-medium text-right whitespace-nowrap">采购总额</th>
+                  <th className="pb-3 font-medium text-right whitespace-nowrap">录入</th>
                 </tr>
               </thead>
               <tbody>
@@ -586,16 +591,16 @@ export const AdminPanel: React.FC = () => {
                           expandedRestaurantId === report.restaurant_id ? null : report.restaurant_id
                         )}
                       >
-                        <td className="py-3 text-white/50">
+                        <td className="py-3 pr-2 text-white/50">
                           <Icons.ChevronDown
                             className={`w-4 h-4 transition-transform ${
                               expandedRestaurantId === report.restaurant_id ? 'rotate-180' : ''
                             }`}
                           />
                         </td>
-                        <td className="py-3 text-white">{report.restaurant_name}</td>
-                        <td className="py-3 text-right text-ios-blue font-medium">{formatMoney(report.total_spend)}</td>
-                        <td className="py-3 text-right text-white/70">{report.entry_count}</td>
+                        <td className="py-3 pr-4 text-white whitespace-nowrap">{report.restaurant_name}</td>
+                        <td className="py-3 pr-4 text-right text-ios-blue font-medium whitespace-nowrap">{formatMoney(report.total_spend)}</td>
+                        <td className="py-3 text-right text-white/70 whitespace-nowrap">{report.entry_count}</td>
                       </tr>
 
                       {/* 展开的明细行 */}
@@ -658,7 +663,7 @@ export const AdminPanel: React.FC = () => {
     );
   };
 
-  // 渲染用户列表（只读）
+  // 渲染用户列表（只读）- v2.1: 移动端卡片布局
   const renderUsers = () => {
     if (usersLoading && users.length === 0) return <LoadingSpinner />;
 
@@ -670,7 +675,31 @@ export const AdminPanel: React.FC = () => {
             <Icons.Eye className="w-3 h-3" /> 只读
           </span>
         </div>
-        <div className="overflow-x-auto">
+
+        {/* 移动端：卡片布局 */}
+        <div className="md:hidden space-y-3">
+          {users.map((u) => (
+            <div
+              key={u.id}
+              className="p-3 rounded-lg bg-white/5 border border-white/10"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-white font-medium">{u.employee_name}</span>
+                <div className="flex items-center gap-2">
+                  <RoleBadge role={u.role_code} />
+                  <span className={`w-2 h-2 rounded-full ${u.is_active ? 'bg-ios-green' : 'bg-white/30'}`} />
+                </div>
+              </div>
+              <div className="text-xs text-white/50 space-y-1">
+                <div>用户名: <span className="text-white/70">{u.username}</span></div>
+                <div>门店: <span className="text-white/70">{u.restaurant_name}</span></div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* 桌面端：表格布局 */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-white/50 border-b border-white/10">
@@ -700,7 +729,7 @@ export const AdminPanel: React.FC = () => {
     );
   };
 
-  // 渲染门店列表（只读）
+  // 渲染门店列表（只读）- v2.1: 移动端卡片布局
   const renderRestaurants = () => {
     if (restaurantsLoading && restaurants.length === 0) return <LoadingSpinner />;
 
@@ -712,7 +741,32 @@ export const AdminPanel: React.FC = () => {
             <Icons.Eye className="w-3 h-3" /> 只读
           </span>
         </div>
-        <div className="overflow-x-auto">
+
+        {/* 移动端：卡片布局 */}
+        <div className="md:hidden space-y-3">
+          {restaurants.map((rest) => (
+            <div
+              key={rest.id}
+              className="p-3 rounded-lg bg-white/5 border border-white/10"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-white font-medium">{rest.restaurant_name}</span>
+                <span className="text-xs text-white/50 bg-white/10 px-2 py-0.5 rounded">
+                  {rest.employee_count} 人
+                </span>
+              </div>
+              <div className="text-xs text-white/50 space-y-1">
+                <div>品牌: <span className="text-white/70">{rest.brand_name || '-'}</span></div>
+                {rest.address && (
+                  <div className="truncate">地址: <span className="text-white/70">{rest.address}</span></div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* 桌面端：表格布局 */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-white/50 border-b border-white/10">
@@ -738,7 +792,7 @@ export const AdminPanel: React.FC = () => {
     );
   };
 
-  // 渲染供应商列表 - v2.0: 品牌过滤 + CRUD
+  // 渲染供应商列表 - v2.1: 移动端卡片布局 + CRUD
   const renderSuppliers = () => {
     return (
       <GlassCard padding="md">
@@ -767,66 +821,117 @@ export const AdminPanel: React.FC = () => {
             <p>暂无供应商数据</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-white/50 border-b border-white/10">
-                  <th className="pb-3 font-medium">供应商名称</th>
-                  <th className="pb-3 font-medium">联系人</th>
-                  <th className="pb-3 font-medium">联系电话</th>
-                  <th className="pb-3 font-medium">品牌</th>
-                  <th className="pb-3 font-medium text-right">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {suppliers.map((sup) => (
-                  <tr key={sup.id} className="border-b border-white/5 last:border-0">
-                    <td className="py-3 text-white">{sup.supplier_name}</td>
-                    <td className="py-3 text-white/70">{sup.contact_person || '-'}</td>
-                    <td className="py-3 text-white/70">{sup.contact_phone || '-'}</td>
-                    <td className="py-3 text-white/50">{sup.brand_name || '-'}</td>
-                    <td className="py-3 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => {
-                            setEditingSupplier({
-                              id: sup.id,
-                              name: sup.supplier_name,
-                              contact_person: sup.contact_person || undefined,
-                              phone: sup.contact_phone || undefined,
-                              address: sup.address || undefined,
-                              brand_id: sup.brand_id
-                            });
-                            setFormError(null);
-                            setModalType('edit-supplier');
-                          }}
-                          className="p-1.5 text-white/50 hover:text-ios-blue hover:bg-ios-blue/10 rounded transition-colors"
-                        >
-                          <Icons.Pencil className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => {
-                            setDeleteTarget({ type: 'supplier', id: sup.id, name: sup.supplier_name });
-                            setFormError(null);
-                            setModalType('confirm-delete');
-                          }}
-                          className="p-1.5 text-white/50 hover:text-ios-red hover:bg-ios-red/10 rounded transition-colors"
-                        >
-                          <Icons.Trash className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
+          <>
+            {/* 移动端：卡片布局 */}
+            <div className="md:hidden space-y-3">
+              {suppliers.map((sup) => (
+                <div
+                  key={sup.id}
+                  className="p-3 rounded-lg bg-white/5 border border-white/10"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-white font-medium">{sup.supplier_name}</span>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => {
+                          setEditingSupplier({
+                            id: sup.id,
+                            name: sup.supplier_name,
+                            contact_person: sup.contact_person || undefined,
+                            phone: sup.contact_phone || undefined,
+                            address: sup.address || undefined,
+                            brand_id: sup.brand_id
+                          });
+                          setFormError(null);
+                          setModalType('edit-supplier');
+                        }}
+                        className="p-1.5 text-white/50 hover:text-ios-blue hover:bg-ios-blue/10 rounded transition-colors"
+                      >
+                        <Icons.Pencil className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          setDeleteTarget({ type: 'supplier', id: sup.id, name: sup.supplier_name });
+                          setFormError(null);
+                          setModalType('confirm-delete');
+                        }}
+                        className="p-1.5 text-white/50 hover:text-ios-red hover:bg-ios-red/10 rounded transition-colors"
+                      >
+                        <Icons.Trash className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="text-xs text-white/50 space-y-1">
+                    {sup.contact_person && <div>联系人: <span className="text-white/70">{sup.contact_person}</span></div>}
+                    {sup.contact_phone && <div>电话: <span className="text-white/70">{sup.contact_phone}</span></div>}
+                    <div>品牌: <span className="text-white/70">{sup.brand_name || '-'}</span></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* 桌面端：表格布局 */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-white/50 border-b border-white/10">
+                    <th className="pb-3 font-medium">供应商名称</th>
+                    <th className="pb-3 font-medium">联系人</th>
+                    <th className="pb-3 font-medium">联系电话</th>
+                    <th className="pb-3 font-medium">品牌</th>
+                    <th className="pb-3 font-medium text-right">操作</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {suppliers.map((sup) => (
+                    <tr key={sup.id} className="border-b border-white/5 last:border-0">
+                      <td className="py-3 text-white">{sup.supplier_name}</td>
+                      <td className="py-3 text-white/70">{sup.contact_person || '-'}</td>
+                      <td className="py-3 text-white/70">{sup.contact_phone || '-'}</td>
+                      <td className="py-3 text-white/50">{sup.brand_name || '-'}</td>
+                      <td className="py-3 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => {
+                              setEditingSupplier({
+                                id: sup.id,
+                                name: sup.supplier_name,
+                                contact_person: sup.contact_person || undefined,
+                                phone: sup.contact_phone || undefined,
+                                address: sup.address || undefined,
+                                brand_id: sup.brand_id
+                              });
+                              setFormError(null);
+                              setModalType('edit-supplier');
+                            }}
+                            className="p-1.5 text-white/50 hover:text-ios-blue hover:bg-ios-blue/10 rounded transition-colors"
+                          >
+                            <Icons.Pencil className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              setDeleteTarget({ type: 'supplier', id: sup.id, name: sup.supplier_name });
+                              setFormError(null);
+                              setModalType('confirm-delete');
+                            }}
+                            className="p-1.5 text-white/50 hover:text-ios-red hover:bg-ios-red/10 rounded transition-colors"
+                          >
+                            <Icons.Trash className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </GlassCard>
     );
   };
 
-  // 渲染物料列表 - v2.0: 品牌过滤 + CRUD
+  // 渲染物料列表 - v2.1: 移动端卡片布局 + CRUD
   const renderMaterials = () => {
     return (
       <GlassCard padding="md">
@@ -855,62 +960,116 @@ export const AdminPanel: React.FC = () => {
             <p>暂无物料数据</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-white/50 border-b border-white/10">
-                  <th className="pb-3 font-medium">物料编码</th>
-                  <th className="pb-3 font-medium">物料名称</th>
-                  <th className="pb-3 font-medium">分类</th>
-                  <th className="pb-3 font-medium">单位</th>
-                  <th className="pb-3 font-medium">品牌</th>
-                  <th className="pb-3 font-medium text-right">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {materials.map((mat) => (
-                  <tr key={mat.id} className="border-b border-white/5 last:border-0">
-                    <td className="py-3 text-white/70">{mat.code || '-'}</td>
-                    <td className="py-3 text-white">{mat.material_name}</td>
-                    <td className="py-3 text-white/70">{mat.category_name || '-'}</td>
-                    <td className="py-3 text-white/70">{mat.unit_name || '-'}</td>
-                    <td className="py-3 text-white/50">{mat.brand_name || '-'}</td>
-                    <td className="py-3 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => {
-                            setEditingMaterial({
-                              id: mat.id,
-                              code: mat.code || '',
-                              name: mat.material_name,
-                              category_id: mat.category_id,
-                              base_unit_id: mat.base_unit_id,
-                              brand_id: mat.brand_id
-                            });
-                            setFormError(null);
-                            setModalType('edit-material');
-                          }}
-                          className="p-1.5 text-white/50 hover:text-ios-blue hover:bg-ios-blue/10 rounded transition-colors"
-                        >
-                          <Icons.Pencil className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => {
-                            setDeleteTarget({ type: 'material', id: mat.id, name: mat.material_name });
-                            setFormError(null);
-                            setModalType('confirm-delete');
-                          }}
-                          className="p-1.5 text-white/50 hover:text-ios-red hover:bg-ios-red/10 rounded transition-colors"
-                        >
-                          <Icons.Trash className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
+          <>
+            {/* 移动端：卡片布局 */}
+            <div className="md:hidden space-y-3">
+              {materials.map((mat) => (
+                <div
+                  key={mat.id}
+                  className="p-3 rounded-lg bg-white/5 border border-white/10"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <span className="text-white font-medium">{mat.material_name}</span>
+                      {mat.code && <span className="ml-2 text-xs text-white/40">{mat.code}</span>}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => {
+                          setEditingMaterial({
+                            id: mat.id,
+                            code: mat.code || '',
+                            name: mat.material_name,
+                            category_id: mat.category_id,
+                            base_unit_id: mat.base_unit_id,
+                            brand_id: mat.brand_id
+                          });
+                          setFormError(null);
+                          setModalType('edit-material');
+                        }}
+                        className="p-1.5 text-white/50 hover:text-ios-blue hover:bg-ios-blue/10 rounded transition-colors"
+                      >
+                        <Icons.Pencil className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          setDeleteTarget({ type: 'material', id: mat.id, name: mat.material_name });
+                          setFormError(null);
+                          setModalType('confirm-delete');
+                        }}
+                        className="p-1.5 text-white/50 hover:text-ios-red hover:bg-ios-red/10 rounded transition-colors"
+                      >
+                        <Icons.Trash className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="text-xs text-white/50 flex flex-wrap gap-x-4 gap-y-1">
+                    {mat.category_name && <span>分类: <span className="text-white/70">{mat.category_name}</span></span>}
+                    {mat.unit_name && <span>单位: <span className="text-white/70">{mat.unit_name}</span></span>}
+                    <span>品牌: <span className="text-white/70">{mat.brand_name || '-'}</span></span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* 桌面端：表格布局 */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-white/50 border-b border-white/10">
+                    <th className="pb-3 font-medium">物料编码</th>
+                    <th className="pb-3 font-medium">物料名称</th>
+                    <th className="pb-3 font-medium">分类</th>
+                    <th className="pb-3 font-medium">单位</th>
+                    <th className="pb-3 font-medium">品牌</th>
+                    <th className="pb-3 font-medium text-right">操作</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {materials.map((mat) => (
+                    <tr key={mat.id} className="border-b border-white/5 last:border-0">
+                      <td className="py-3 text-white/70">{mat.code || '-'}</td>
+                      <td className="py-3 text-white">{mat.material_name}</td>
+                      <td className="py-3 text-white/70">{mat.category_name || '-'}</td>
+                      <td className="py-3 text-white/70">{mat.unit_name || '-'}</td>
+                      <td className="py-3 text-white/50">{mat.brand_name || '-'}</td>
+                      <td className="py-3 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => {
+                              setEditingMaterial({
+                                id: mat.id,
+                                code: mat.code || '',
+                                name: mat.material_name,
+                                category_id: mat.category_id,
+                                base_unit_id: mat.base_unit_id,
+                                brand_id: mat.brand_id
+                              });
+                              setFormError(null);
+                              setModalType('edit-material');
+                            }}
+                            className="p-1.5 text-white/50 hover:text-ios-blue hover:bg-ios-blue/10 rounded transition-colors"
+                          >
+                            <Icons.Pencil className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              setDeleteTarget({ type: 'material', id: mat.id, name: mat.material_name });
+                              setFormError(null);
+                              setModalType('confirm-delete');
+                            }}
+                            className="p-1.5 text-white/50 hover:text-ios-red hover:bg-ios-red/10 rounded transition-colors"
+                          >
+                            <Icons.Trash className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </GlassCard>
     );
@@ -1276,7 +1435,7 @@ export const AdminPanel: React.FC = () => {
         {/* 侧边栏内容 */}
         <div
           ref={mobileSidebarRef}
-          className={`absolute top-0 bottom-0 left-0 w-64 transform transition-transform duration-300 flex flex-col p-4 ${mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
+          className={`absolute top-0 bottom-0 left-0 w-64 transform transition-transform duration-300 flex flex-col p-4 overflow-visible ${mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
           style={{
             background: 'linear-gradient(180deg, rgba(30,35,40,0.25) 0%, rgba(35,40,50,0.15) 100%)',
             backdropFilter: 'blur(24px) saturate(140%)',
@@ -1288,7 +1447,7 @@ export const AdminPanel: React.FC = () => {
           <h1 className="text-2xl font-bold mb-8 px-4 mt-8 text-white">门店管家</h1>
 
           {/* 导航列表 */}
-          <nav className="space-y-1 flex-1 overflow-y-auto">
+          <nav className="space-y-1 flex-1 overflow-y-auto overflow-x-visible">
             {navItems.map((item) => (
               <React.Fragment key={item.id}>
                 {item.section && (
@@ -1338,14 +1497,15 @@ export const AdminPanel: React.FC = () => {
               <Icons.ChevronDown className={`w-4 h-4 text-white/60 transition-transform ${showUserMenu ? 'rotate-180' : ''}`} />
             </div>
 
-            {/* 用户菜单 - 移动端侧边栏 */}
+            {/* 用户菜单 - 移动端侧边栏 - 使用 fixed 定位避免被裁剪 */}
             {showUserMenu && (
               <div
-                className="absolute bottom-full left-0 right-0 mb-2 rounded-glass-lg overflow-hidden z-[100]"
+                className="fixed left-4 right-4 bottom-24 rounded-glass-lg overflow-hidden z-[200]"
                 style={{
                   background: 'rgba(25,25,30,0.95)',
                   backdropFilter: 'blur(24px)',
-                  border: '1px solid rgba(255,255,255,0.15)'
+                  border: '1px solid rgba(255,255,255,0.15)',
+                  maxWidth: '232px'
                 }}
                 onClick={(e) => e.stopPropagation()}
               >
