@@ -1,5 +1,12 @@
 /**
  * 管理员面板主组件
+ * v2.3 - 重大功能更新：
+ *   - 使用 GlassSelect 替代原生 select，统一下拉框样式
+ *   - 供应商/物料列表添加搜索框
+ *   - 物料编码自动生成（品牌前缀 + 随机数）
+ *   - 修复编辑保存后自动关闭弹窗
+ *   - 优化数据刷新（后台静默刷新）
+ *
  * v2.2 - 下拉框样式统一：
  *   - 使用 appearance-none 移除浏览器默认样式
  *   - 添加自定义下拉箭头图标
@@ -23,8 +30,8 @@
  * v1.0 - 初始版本：Storm Glass 风格管理员控制台
  */
 
-import React, { useState, useRef, useEffect } from 'react';
-import { GlassCard } from './ui';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { GlassCard, GlassSelect } from './ui';
 import { Icons } from '../constants';
 import { useAuth } from '../contexts/AuthContext';
 import {
@@ -67,6 +74,10 @@ export const AdminPanel: React.FC = () => {
   const [reportDays, setReportDays] = useState<number>(30);
   const [expandedRestaurantId, setExpandedRestaurantId] = useState<string | null>(null);
 
+  // v2.3: 搜索状态
+  const [supplierSearch, setSupplierSearch] = useState('');
+  const [materialSearch, setMaterialSearch] = useState('');
+
   // 模态框状态
   const [modalType, setModalType] = useState<ModalType>('none');
   const [editingSupplier, setEditingSupplier] = useState<{ id: number; name: string; contact_person?: string; phone?: string; address?: string; brand_id: number } | null>(null);
@@ -90,6 +101,52 @@ export const AdminPanel: React.FC = () => {
   const { categories } = useCategoryList();
   const { units } = useUnitList();
   const { details: restaurantDetails, isLoading: detailsLoading } = useRestaurantDetails(expandedRestaurantId, reportDays);
+
+  // v2.3: 过滤后的供应商和物料列表（支持搜索）
+  const filteredSuppliers = useMemo(() => {
+    if (!supplierSearch.trim()) return suppliers;
+    const query = supplierSearch.toLowerCase();
+    return suppliers.filter(
+      (s) =>
+        s.supplier_name.toLowerCase().includes(query) ||
+        (s.contact_person && s.contact_person.toLowerCase().includes(query)) ||
+        (s.contact_phone && s.contact_phone.includes(query))
+    );
+  }, [suppliers, supplierSearch]);
+
+  const filteredMaterials = useMemo(() => {
+    if (!materialSearch.trim()) return materials;
+    const query = materialSearch.toLowerCase();
+    return materials.filter(
+      (m) =>
+        m.material_name.toLowerCase().includes(query) ||
+        (m.code && m.code.toLowerCase().includes(query)) ||
+        (m.category_name && m.category_name.toLowerCase().includes(query))
+    );
+  }, [materials, materialSearch]);
+
+  // v2.3: 根据品牌生成物料编码前缀
+  const getBrandCodePrefix = (brandId: number): string => {
+    const brand = brands.find((b) => b.id === brandId);
+    if (!brand) return 'MAT';
+    // 使用品牌 code 或从名称生成拼音首字母
+    if (brand.code) return brand.code.toUpperCase();
+    // 常见品牌映射
+    const brandPrefixMap: Record<string, string> = {
+      '宁桂杏': 'NGX',
+      '野百灵': 'YBL',
+      '邦兰浦': 'BLP',
+    };
+    return brandPrefixMap[brand.name] || 'MAT';
+  };
+
+  // v2.3: 生成物料编码（品牌前缀 + 时间戳 + 随机数）
+  const generateMaterialCode = (brandId: number): string => {
+    const prefix = getBrandCodePrefix(brandId);
+    const timestamp = Date.now().toString(36).toUpperCase();
+    const random = Math.random().toString(36).substring(2, 6).toUpperCase();
+    return `${prefix}-${timestamp}${random}`;
+  };
 
   // 点击外部关闭用户菜单
   useEffect(() => {
@@ -177,18 +234,12 @@ export const AdminPanel: React.FC = () => {
     </div>
   );
 
-  // 统一的下拉框样式组件 - v2.1: 自定义样式 + 下拉箭头
-  const selectBaseClass = "appearance-none bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-1 focus:ring-ios-blue cursor-pointer";
-  const selectSmallClass = `${selectBaseClass} px-3 py-1.5 pr-8 text-xs rounded-lg`;
-  const selectFullClass = `${selectBaseClass} w-full px-3 py-2 pr-10 text-sm rounded-lg`;
+  // v2.3: 使用 GlassSelect 替代原生 select - 品牌过滤
+  const brandOptions = brands.map((b) => ({ value: b.id, label: b.name }));
+  const restaurantOptions = restaurants.map((r) => ({ value: r.id, label: r.restaurant_name }));
 
-  // 下拉箭头包装器
-  const SelectWrapper = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => (
-    <div className={`relative inline-block ${className}`}>
-      {children}
-      <Icons.ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-white/50 pointer-events-none" />
-    </div>
-  );
+  // 表单下拉框样式（保留原生 select 用于表单提交）
+  const selectFullClass = "appearance-none w-full px-3 py-2 pr-10 text-sm rounded-lg bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-1 focus:ring-ios-blue cursor-pointer";
 
   // 表单下拉框包装器（全宽）
   const FormSelectWrapper = ({ children }: { children: React.ReactNode }) => (
@@ -198,36 +249,28 @@ export const AdminPanel: React.FC = () => {
     </div>
   );
 
-  // 品牌过滤下拉框
+  // 品牌过滤下拉框（使用 GlassSelect）
   const BrandFilter = ({ value, onChange, label = "筛选品牌" }: { value: number | undefined; onChange: (v: number | undefined) => void; label?: string }) => (
-    <SelectWrapper>
-      <select
-        value={value || ''}
-        onChange={(e) => onChange(e.target.value ? Number(e.target.value) : undefined)}
-        className={selectSmallClass}
-      >
-        <option value="">{label}</option>
-        {brands.map((b) => (
-          <option key={b.id} value={b.id}>{b.name}</option>
-        ))}
-      </select>
-    </SelectWrapper>
+    <GlassSelect
+      options={brandOptions}
+      value={value}
+      onChange={(v) => onChange(v as number | undefined)}
+      placeholder={label}
+      size="small"
+    />
   );
 
-  // 门店过滤下拉框
+  // 门店过滤下拉框（使用 GlassSelect）
   const RestaurantFilter = ({ value, onChange }: { value: string | undefined; onChange: (v: string | undefined) => void }) => (
-    <SelectWrapper>
-      <select
-        value={value || ''}
-        onChange={(e) => onChange(e.target.value || undefined)}
-        className={selectSmallClass}
-      >
-        <option value="">全部门店</option>
-        {restaurants.map((r) => (
-          <option key={r.id} value={r.id}>{r.restaurant_name}</option>
-        ))}
-      </select>
-    </SelectWrapper>
+    <GlassSelect
+      options={restaurantOptions}
+      value={value}
+      onChange={(v) => onChange(v as string | undefined)}
+      placeholder="全部门店"
+      size="small"
+      searchable
+      searchPlaceholder="搜索门店..."
+    />
   );
 
   // 日期范围选择器
@@ -312,6 +355,7 @@ export const AdminPanel: React.FC = () => {
   };
 
   // ============ 物料表单处理 ============
+  // v2.3: 添加物料时自动生成编码
   const handleAddMaterial = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setFormError(null);
@@ -320,16 +364,24 @@ export const AdminPanel: React.FC = () => {
     const form = e.currentTarget;
     const formData = new FormData(form);
 
+    const brandId = Number(formData.get('brand_id'));
+    let code = formData.get('code') as string;
+
+    // 如果编码为空，自动生成
+    if (!code || code.trim() === '') {
+      code = generateMaterialCode(brandId);
+    }
+
     const input: MaterialInput = {
-      code: formData.get('code') as string,
+      code,
       name: formData.get('name') as string,
-      category_id: Number(formData.get('category_id')),
-      base_unit_id: Number(formData.get('base_unit_id')),
-      brand_id: Number(formData.get('brand_id'))
+      category_id: Number(formData.get('category_id')) || 0,
+      base_unit_id: Number(formData.get('base_unit_id')) || 0,
+      brand_id: brandId
     };
 
-    if (!input.code || !input.name || !input.brand_id) {
-      setFormError('请填写物料编码、名称和选择品牌');
+    if (!input.name || !input.brand_id) {
+      setFormError('请填写物料名称和选择品牌');
       setFormLoading(false);
       return;
     }
@@ -822,7 +874,7 @@ export const AdminPanel: React.FC = () => {
     );
   };
 
-  // 渲染供应商列表 - v2.1: 移动端卡片布局 + CRUD
+  // 渲染供应商列表 - v2.3: 添加搜索框 + 移动端卡片布局 + CRUD
   const renderSuppliers = () => {
     return (
       <GlassCard padding="md">
@@ -843,18 +895,29 @@ export const AdminPanel: React.FC = () => {
           </div>
         </div>
 
+        {/* v2.3: 搜索框 */}
+        <div className="mb-4">
+          <input
+            type="text"
+            value={supplierSearch}
+            onChange={(e) => setSupplierSearch(e.target.value)}
+            placeholder="搜索供应商名称、联系人、电话..."
+            className="w-full px-3 py-2 text-sm bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/40 focus:outline-none focus:ring-1 focus:ring-ios-blue"
+          />
+        </div>
+
         {suppliersLoading && suppliers.length === 0 ? (
           <LoadingSpinner />
-        ) : suppliers.length === 0 ? (
+        ) : filteredSuppliers.length === 0 ? (
           <div className="text-center py-12 text-white/40">
             <Icons.Truck className="w-12 h-12 mx-auto mb-3 opacity-50" />
-            <p>暂无供应商数据</p>
+            <p>{supplierSearch ? '无匹配结果' : '暂无供应商数据'}</p>
           </div>
         ) : (
           <>
             {/* 移动端：卡片布局 */}
             <div className="md:hidden space-y-3">
-              {suppliers.map((sup) => (
+              {filteredSuppliers.map((sup) => (
                 <div
                   key={sup.id}
                   className="p-3 rounded-lg bg-white/5 border border-white/10"
@@ -913,7 +976,7 @@ export const AdminPanel: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {suppliers.map((sup) => (
+                  {filteredSuppliers.map((sup) => (
                     <tr key={sup.id} className="border-b border-white/5 last:border-0">
                       <td className="py-3 text-white">{sup.supplier_name}</td>
                       <td className="py-3 text-white/70">{sup.contact_person || '-'}</td>
@@ -961,7 +1024,7 @@ export const AdminPanel: React.FC = () => {
     );
   };
 
-  // 渲染物料列表 - v2.1: 移动端卡片布局 + CRUD
+  // 渲染物料列表 - v2.3: 添加搜索框 + 移动端卡片布局 + CRUD
   const renderMaterials = () => {
     return (
       <GlassCard padding="md">
@@ -982,18 +1045,29 @@ export const AdminPanel: React.FC = () => {
           </div>
         </div>
 
+        {/* v2.3: 搜索框 */}
+        <div className="mb-4">
+          <input
+            type="text"
+            value={materialSearch}
+            onChange={(e) => setMaterialSearch(e.target.value)}
+            placeholder="搜索物料名称、编码、分类..."
+            className="w-full px-3 py-2 text-sm bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/40 focus:outline-none focus:ring-1 focus:ring-ios-blue"
+          />
+        </div>
+
         {materialsLoading && materials.length === 0 ? (
           <LoadingSpinner />
-        ) : materials.length === 0 ? (
+        ) : filteredMaterials.length === 0 ? (
           <div className="text-center py-12 text-white/40">
             <Icons.Package className="w-12 h-12 mx-auto mb-3 opacity-50" />
-            <p>暂无物料数据</p>
+            <p>{materialSearch ? '无匹配结果' : '暂无物料数据'}</p>
           </div>
         ) : (
           <>
             {/* 移动端：卡片布局 */}
             <div className="md:hidden space-y-3">
-              {materials.map((mat) => (
+              {filteredMaterials.map((mat) => (
                 <div
                   key={mat.id}
                   className="p-3 rounded-lg bg-white/5 border border-white/10"
@@ -1056,7 +1130,7 @@ export const AdminPanel: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {materials.map((mat) => (
+                  {filteredMaterials.map((mat) => (
                     <tr key={mat.id} className="border-b border-white/5 last:border-0">
                       <td className="py-3 text-white/70">{mat.code || '-'}</td>
                       <td className="py-3 text-white">{mat.material_name}</td>
@@ -1269,8 +1343,8 @@ export const AdminPanel: React.FC = () => {
               {formError && <div className="mb-3 p-2 bg-ios-red/20 border border-ios-red/30 rounded text-ios-red text-sm">{formError}</div>}
               <div className="space-y-3">
                 <div>
-                  <label className="block text-xs text-white/60 mb-1">物料编码 *</label>
-                  <input name="code" type="text" required className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-ios-blue" />
+                  <label className="block text-xs text-white/60 mb-1">物料编码 <span className="text-white/40">(留空自动生成)</span></label>
+                  <input name="code" type="text" placeholder="自动生成：品牌前缀+随机码" className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-ios-blue placeholder-white/30" />
                 </div>
                 <div>
                   <label className="block text-xs text-white/60 mb-1">物料名称 *</label>

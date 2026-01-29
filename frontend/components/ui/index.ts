@@ -3,3 +3,5 @@ export { Button } from './Button';
 export { Input } from './Input';
 export { AutocompleteInput } from './AutocompleteInput';
 export type { AutocompleteOption, AutocompleteInputProps } from './AutocompleteInput';
+export { GlassSelect } from './GlassSelect';
+export type { GlassSelectOption, GlassSelectProps } from './GlassSelect';
