@@ -1,9 +1,10 @@
 /**
  * 简化认证服务 - 直接查询 master_employee 表
- * v5.0 - 迁移到 master tables: ims_users → master_employee, ims_stores → master_restaurant
+ * v5.1 - 添加缓存版本号机制，支持强制刷新所有用户缓存
  *
  * 变更历史：
- * - v5.0: 迁移到 master tables，使用 master_employee 替代 ims_users
+ * - v5.1: 添加 CACHE_VERSION，修改版本号可强制所有用户重新登录
+ * - v5.0: 迁移到 master tables: ims_users → master_employee, ims_stores → master_restaurant
  * - v4.4: brand_code → brand_id，直接使用外键ID，无需字符串映射
  * - v4.3: 添加 brand_code 字段，用于区分野百灵(YBL)/宁桂杏(NGX)品牌
  * - v4.2: 添加 refreshUser 函数，支持 Stale-While-Revalidate 模式
@@ -18,6 +19,10 @@ import { supabase } from './supabaseClient';
 
 // 最大登录失败次数
 const MAX_LOGIN_ATTEMPTS = 5;
+
+// 缓存版本号 - 修改此值会强制所有用户重新登录
+// 当需要强制刷新所有用户缓存时，递增此版本号
+const CACHE_VERSION = 2;
 
 // 当前用户信息类型
 export interface CurrentUser {
@@ -113,8 +118,9 @@ export async function login(username: string, password: string): Promise<Current
     brand_id: (data.master_restaurant as any)?.brand_id || null,
   };
 
-  // 保存到 localStorage
+  // 保存到 localStorage（同时保存版本号）
   localStorage.setItem('user', JSON.stringify(user));
+  localStorage.setItem('cache_version', String(CACHE_VERSION));
 
   return user;
 }
@@ -153,9 +159,20 @@ export async function changePassword(
 
 /**
  * 获取当前用户 - 从 localStorage 读取
+ * 检查缓存版本号，版本不匹配时清除缓存强制重新登录
  */
 export function getCurrentUser(): CurrentUser | null {
   const userStr = localStorage.getItem('user');
+  const cachedVersion = localStorage.getItem('cache_version');
+
+  // 版本号不匹配，清除缓存
+  if (cachedVersion !== String(CACHE_VERSION)) {
+    console.log(`缓存版本不匹配 (${cachedVersion} → ${CACHE_VERSION})，清除缓存`);
+    localStorage.removeItem('user');
+    localStorage.setItem('cache_version', String(CACHE_VERSION));
+    return null;
+  }
+
   if (!userStr) return null;
   try {
     return JSON.parse(userStr);
@@ -227,8 +244,9 @@ export async function refreshUser(userId: string): Promise<CurrentUser | null> {
       brand_id: (data.master_restaurant as any)?.brand_id || null,
     };
 
-    // 更新 localStorage
+    // 更新 localStorage（同时更新版本号）
     localStorage.setItem('user', JSON.stringify(freshUser));
+    localStorage.setItem('cache_version', String(CACHE_VERSION));
 
     return freshUser;
   } catch (err) {
