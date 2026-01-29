@@ -1,5 +1,8 @@
 /**
  * 管理员面板服务
+ * v1.4 - 修复供应商列表过滤：
+ *   - 添加 is_active 过滤，只显示活跃供应商
+ *
  * v1.3 - 重大功能更新：
  *   - 过滤测试门店（"测试门店"不显示）
  *   - 添加品牌列表获取
@@ -462,6 +465,7 @@ export async function getAdminSupplierList(brandId?: number): Promise<AdminSuppl
     let query = supabase
       .from('ims_supplier')
       .select('id, name, contact_person, phone, address, brand_id, is_active')
+      .eq('is_active', true)
       .order('name');
 
     if (brandId) {
