@@ -286,6 +286,32 @@ const CACHE_VERSION = 2;
 
 ---
 
+## Git 双仓库同步
+
+### 背景
+
+项目从个人仓库迁移到了组织仓库，但 Cloudflare Pages 仍连接旧仓库：
+
+| Remote | 仓库 | 用途 |
+|--------|------|------|
+| `origin` | `smarticeAI/smartice_ims` | 主仓库（代码推送） |
+| `jeremydong` | `JeremyDong22/InventoryEntryOfSmartICE` | Cloudflare Pages 自动部署 |
+
+### 推送代码
+
+每次推送需要同时推送到两个仓库，确保 Cloudflare Pages 自动部署：
+
+```bash
+git push origin main && git push jeremydong main
+```
+
+### 注意事项
+
+- 如果只推送到 `origin`，Cloudflare Pages 不会自动部署
+- 可以手动部署：`cd frontend && npm run build && npx wrangler pages deploy dist --project-name=inventoryofsmartice`
+
+---
+
 ## TODO / 待办事项
 
 ### SKU 单位规范化（待实现）
