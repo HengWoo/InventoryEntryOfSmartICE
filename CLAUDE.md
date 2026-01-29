@@ -252,3 +252,21 @@ uv run uvicorn app.main:app --reload
 - 云海日落背景图
 
 详见 `frontend/CLAUDE.md`
+
+---
+
+## TODO / 待办事项
+
+### SKU 单位规范化（待实现）
+
+**问题**：价格异常检测误报，因为同一物料录入时单位不统一（件、瓶、斤、箱混用）
+
+**方案**：强制定死 SKU 的标准单位
+- 每个物料在 `ims_material` 定义 `base_unit_id`（基础单位）
+- 录入时只能选择预设的 SKU 单位，不能手填
+- 价格比较时统一换算到基础单位
+
+**相关表**：
+- `ims_material` - 物料主数据（有 base_unit_id）
+- `ims_material_sku` - SKU 规格表（目前为空，需要维护）
+- `ims_unit` - 单位表（已有 base/package/usage 分类）

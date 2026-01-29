@@ -871,7 +871,7 @@ export async function getRestaurantPurchaseDetails(restaurantId: string, days: n
 
     const { data: prices, error } = await supabase
       .from('ims_material_price')
-      .select('id, item_name, quantity, unit_name, unit_price, total_amount, price_date, supplier_name')
+      .select('id, item_name, quantity, unit, unit_price, total_amount, price_date, supplier_name')
       .eq('restaurant_id', restaurantId)
       .gte('price_date', startDate)
       .order('price_date', { ascending: false })
@@ -886,7 +886,7 @@ export async function getRestaurantPurchaseDetails(restaurantId: string, days: n
       id: p.id,
       item_name: p.item_name,
       quantity: p.quantity,
-      unit_name: p.unit_name,
+      unit_name: p.unit,
       unit_price: p.unit_price,
       total_amount: p.total_amount,
       price_date: p.price_date,
