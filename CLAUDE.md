@@ -255,6 +255,37 @@ uv run uvicorn app.main:app --reload
 
 ---
 
+## 缓存版本号机制
+
+### 用途
+
+强制所有用户重新登录，刷新本地缓存的用户信息（角色、门店等）。
+
+### 实现位置
+
+`frontend/services/authService.ts` 中的 `CACHE_VERSION` 常量：
+
+```typescript
+// 缓存版本号 - 修改此值会强制所有用户重新登录
+const CACHE_VERSION = 2;
+```
+
+### 使用方法
+
+当需要强制刷新所有用户缓存时（如修改了用户角色、门店归属等）：
+
+1. 打开 `frontend/services/authService.ts`
+2. 递增 `CACHE_VERSION` 值（如 2 → 3）
+3. 提交并部署
+
+### 工作原理
+
+- `getCurrentUser()` 检查 localStorage 中的 `cache_version`
+- 版本号不匹配时，自动清除 `user` 缓存
+- 用户下次访问会被强制重新登录，获取最新数据
+
+---
+
 ## TODO / 待办事项
 
 ### SKU 单位规范化（待实现）
