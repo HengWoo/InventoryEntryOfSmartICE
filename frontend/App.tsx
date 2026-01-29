@@ -199,8 +199,9 @@ const AppContent: React.FC = () => {
   };
 
   // 已登录显示主应用
-  // 管理员在管理面板时，使用独立全屏布局
-  const isAdminView = currentView === AppView.ADMIN_OVERVIEW;
+  // 管理员用户始终使用管理员布局（包括修改密码页面）
+  const isAdminUser = user?.role === 'administrator';
+  const isAdminView = isAdminUser;
 
   return (
     <div className="fixed inset-0 flex text-primary font-sans overflow-hidden">
@@ -234,10 +235,14 @@ const AppContent: React.FC = () => {
         />
       )}
 
-      {/* v6.2: 管理员面板独立全屏布局 */}
+      {/* v6.3: 管理员用户布局 - 管理面板或修改密码 */}
       {isAdminView ? (
         <div className="flex-1 h-full overflow-hidden">
-          <AdminPanel />
+          {currentView === AppView.CHANGE_PASSWORD ? (
+            <ChangePasswordPage onBack={() => setCurrentView(AppView.ADMIN_OVERVIEW)} />
+          ) : (
+            <AdminPanel />
+          )}
         </div>
       ) : (
         <div className="flex-1 flex flex-col h-full relative w-full">
