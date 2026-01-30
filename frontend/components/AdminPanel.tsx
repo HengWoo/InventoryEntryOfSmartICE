@@ -1,5 +1,18 @@
 /**
  * 管理员面板主组件
+ * v2.8 - 价格趋势分析功能：
+ *   - 新增"价格趋势"页面（报表大类下）
+ *   - 支持品牌→分类→时间范围筛选
+ *   - 折线图展示整体价格趋势
+ *   - 支持拆分查看各物料独立曲线
+ *
+ * v2.7 - 移动端用户菜单触摸优化：
+ *   - 修复移动端退出登录/修改密码按钮难以点击的问题
+ *   - 菜单改用绝对定位（bottom-full）替代固定定位
+ *   - 增大按钮触摸区域：py-4 min-h-[52px]
+ *   - 增大图标尺寸：w-6 h-6
+ *   - 添加 active 状态反馈
+ *
  * v2.6 - 跨门店采购汇总明细优化：
  *   - 移动端表格优化：隐藏供应商和日期列，减少换行
  *   - 添加"展开全部"功能，可查看所有记录
@@ -52,6 +65,16 @@ import { GlassCard, GlassSelect } from './ui';
 import { Icons } from '../constants';
 import { useAuth } from '../contexts/AuthContext';
 import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer
+} from 'recharts';
+import {
   useAdminOverview,
   useRestaurantEntryStatus,
   usePriceAlerts,
@@ -63,12 +86,14 @@ import {
   useBrandList,
   useCategoryList,
   useUnitList,
-  useRestaurantDetails
+  useRestaurantDetails,
+  useCategoriesByBrand,
+  useCategoryPriceTrend
 } from '../hooks/useAdminData';
 import { SupplierInput, MaterialInput } from '../services/adminService';
 
 // 管理员面板子视图
-type AdminSubView = 'overview' | 'monitoring' | 'alerts' | 'reports' | 'users' | 'restaurants' | 'suppliers' | 'materials';
+type AdminSubView = 'overview' | 'monitoring' | 'alerts' | 'reports' | 'price-trend' | 'users' | 'restaurants' | 'suppliers' | 'materials';
 
 // 编辑模态框类型
 type ModalType = 'none' | 'add-supplier' | 'edit-supplier' | 'add-material' | 'edit-material' | 'confirm-delete';
@@ -91,6 +116,12 @@ export const AdminPanel: React.FC = () => {
   const [reportDays, setReportDays] = useState<number>(30);
   const [expandedRestaurantId, setExpandedRestaurantId] = useState<string | null>(null);
   const [showAllDetails, setShowAllDetails] = useState(false); // 是否展开全部明细
+
+  // v2.8: 价格趋势状态
+  const [priceTrendBrandId, setPriceTrendBrandId] = useState<number | undefined>(undefined);
+  const [priceTrendCategoryId, setPriceTrendCategoryId] = useState<number | undefined>(undefined);
+  const [priceTrendDays, setPriceTrendDays] = useState<number>(30);
+  const [showMaterialSplit, setShowMaterialSplit] = useState(false);
 
   // v2.3: 搜索状态
   const [supplierSearch, setSupplierSearch] = useState('');
@@ -124,6 +155,9 @@ export const AdminPanel: React.FC = () => {
   const { categories } = useCategoryList();
   const { units } = useUnitList();
   const { details: restaurantDetails, isLoading: detailsLoading } = useRestaurantDetails(expandedRestaurantId, reportDays);
+  // v2.8: 价格趋势数据
+  const { categories: trendCategories, isLoading: trendCategoriesLoading } = useCategoriesByBrand(priceTrendBrandId);
+  const { trendData, isLoading: trendLoading } = useCategoryPriceTrend(priceTrendBrandId, priceTrendCategoryId, priceTrendDays);
 
   // v2.3: 过滤后的供应商和物料列表（支持搜索）
   const filteredSuppliers = useMemo(() => {
@@ -188,6 +222,7 @@ export const AdminPanel: React.FC = () => {
     { id: 'monitoring', label: '录入监控', icon: Icons.Clock },
     { id: 'alerts', label: '异常告警', icon: Icons.ExclamationTriangle },
     { id: 'reports', label: '数据报表', icon: Icons.Document, section: '报表' },
+    { id: 'price-trend', label: '价格趋势', icon: Icons.TrendingUp },
     { id: 'users', label: '用户', icon: Icons.User, section: '数据管理' },
     { id: 'restaurants', label: '门店', icon: Icons.Storefront },
     { id: 'suppliers', label: '供应商', icon: Icons.Truck },
@@ -1233,6 +1268,236 @@ export const AdminPanel: React.FC = () => {
     );
   };
 
+  // v2.8: 渲染价格趋势视图
+  const renderPriceTrend = () => {
+    // 折线图颜色配置
+    const lineColors = ['#5BA3C0', '#6B9E8A', '#E8A54C', '#E85A4F', '#9370DB', '#4ECDC4'];
+
+    // 品牌选项
+    const trendBrandOptions = brands.map((b) => ({ value: b.id, label: b.name }));
+    // 分类选项
+    const trendCategoryOptions = trendCategories.map((c) => ({ value: c.id, label: c.name }));
+
+    // 时间范围选项
+    const timeRangeOptions = [
+      { label: '一周', value: 7 },
+      { label: '一个月', value: 30 },
+      { label: '一个季度', value: 90 },
+      { label: '一年', value: 365 },
+    ];
+
+    // 格式化日期显示
+    const formatChartDate = (dateStr: string) => {
+      const date = new Date(dateStr);
+      return `${date.getMonth() + 1}/${date.getDate()}`;
+    };
+
+    // 准备图表数据
+    const chartData = (() => {
+      if (!trendData) return [];
+
+      if (showMaterialSplit && trendData.materialTrends.length > 0) {
+        // 拆分视图：合并所有物料数据
+        const dateMap: Record<string, Record<string, number>> = {};
+
+        trendData.materialTrends.forEach((material) => {
+          material.data.forEach((point) => {
+            if (!dateMap[point.date]) {
+              dateMap[point.date] = {};
+            }
+            dateMap[point.date][material.materialName] = point.avgPrice;
+          });
+        });
+
+        return Object.entries(dateMap)
+          .map(([date, values]) => ({
+            date,
+            ...values,
+          }))
+          .sort((a, b) => a.date.localeCompare(b.date));
+      } else {
+        // 整体视图
+        return trendData.aggregatedTrend.map((point) => ({
+          date: point.date,
+          avgPrice: point.avgPrice,
+        }));
+      }
+    })();
+
+    return (
+      <GlassCard padding="md">
+        <div className="flex flex-col gap-4 mb-4">
+          <h3 className="text-base font-bold text-white">价格趋势分析</h3>
+
+          {/* 筛选器区域 */}
+          <div className="flex flex-col md:flex-row gap-3">
+            {/* 品牌选择 */}
+            <div className="flex-1 min-w-[140px]">
+              <label className="block text-xs text-white/60 mb-1">品牌</label>
+              <GlassSelect
+                options={trendBrandOptions}
+                value={priceTrendBrandId}
+                onChange={(v) => {
+                  setPriceTrendBrandId(v as number | undefined);
+                  setPriceTrendCategoryId(undefined); // 重置分类
+                  setShowMaterialSplit(false);
+                }}
+                placeholder="选择品牌"
+                size="small"
+              />
+            </div>
+
+            {/* 分类选择 */}
+            <div className="flex-1 min-w-[140px]">
+              <label className="block text-xs text-white/60 mb-1">分类</label>
+              <GlassSelect
+                options={trendCategoryOptions}
+                value={priceTrendCategoryId}
+                onChange={(v) => {
+                  setPriceTrendCategoryId(v as number | undefined);
+                  setShowMaterialSplit(false);
+                }}
+                placeholder={priceTrendBrandId ? (trendCategoriesLoading ? '加载中...' : '选择分类') : '请先选择品牌'}
+                size="small"
+                disabled={!priceTrendBrandId}
+              />
+            </div>
+
+            {/* 时间范围 */}
+            <div className="flex-shrink-0">
+              <label className="block text-xs text-white/60 mb-1">时间范围</label>
+              <div className="flex flex-wrap gap-1">
+                {timeRangeOptions.map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => setPriceTrendDays(opt.value)}
+                    className={`px-3 py-1.5 text-xs rounded-lg transition-all ${
+                      priceTrendDays === opt.value
+                        ? 'bg-ios-blue/30 text-ios-blue border border-ios-blue/50'
+                        : 'bg-white/5 text-white/60 border border-white/10 hover:bg-white/10'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 图表区域 */}
+        {!priceTrendBrandId || !priceTrendCategoryId ? (
+          <div className="flex flex-col items-center justify-center py-16 text-white/40">
+            <Icons.TrendingUp className="w-12 h-12 mb-3 opacity-50" />
+            <p className="text-sm">请选择品牌和分类查看价格趋势</p>
+          </div>
+        ) : trendLoading ? (
+          <div className="flex items-center justify-center h-64">
+            <div className="w-8 h-8 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+          </div>
+        ) : !trendData || chartData.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 text-white/40">
+            <Icons.ChartBar className="w-12 h-12 mb-3 opacity-50" />
+            <p className="text-sm">该分类暂无价格数据</p>
+          </div>
+        ) : (
+          <>
+            {/* 拆分/收起按钮 */}
+            {trendData.materialTrends.length > 0 && (
+              <div className="flex justify-end mb-2">
+                <button
+                  onClick={() => setShowMaterialSplit(!showMaterialSplit)}
+                  className="text-xs text-ios-blue hover:text-ios-blue/80 transition-colors"
+                >
+                  {showMaterialSplit ? '收起物料明细' : `拆分查看 (${trendData.materialTrends.length} 个物料)`}
+                </button>
+              </div>
+            )}
+
+            {/* 折线图 */}
+            <div className="h-[250px] md:h-[300px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+                  <XAxis
+                    dataKey="date"
+                    tickFormatter={formatChartDate}
+                    stroke="rgba(255,255,255,0.5)"
+                    tick={{ fill: 'rgba(255,255,255,0.6)', fontSize: 11 }}
+                    axisLine={{ stroke: 'rgba(255,255,255,0.2)' }}
+                  />
+                  <YAxis
+                    stroke="rgba(255,255,255,0.5)"
+                    tick={{ fill: 'rgba(255,255,255,0.6)', fontSize: 11 }}
+                    axisLine={{ stroke: 'rgba(255,255,255,0.2)' }}
+                    tickFormatter={(value) => `¥${value}`}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'rgba(30,35,40,0.95)',
+                      border: '1px solid rgba(255,255,255,0.15)',
+                      borderRadius: '8px',
+                      color: '#fff',
+                    }}
+                    labelFormatter={(label) => `日期: ${label}`}
+                    formatter={(value: number) => [`¥${value.toFixed(2)}`, '单价']}
+                  />
+                  {showMaterialSplit && trendData.materialTrends.length > 0 ? (
+                    <>
+                      <Legend
+                        wrapperStyle={{ paddingTop: '10px' }}
+                        formatter={(value) => <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '12px' }}>{value}</span>}
+                      />
+                      {trendData.materialTrends.map((material, index) => (
+                        <Line
+                          key={material.materialId}
+                          type="monotone"
+                          dataKey={material.materialName}
+                          stroke={lineColors[index % lineColors.length]}
+                          strokeWidth={2}
+                          dot={{ r: 3, fill: lineColors[index % lineColors.length] }}
+                          activeDot={{ r: 5 }}
+                        />
+                      ))}
+                    </>
+                  ) : (
+                    <Line
+                      type="monotone"
+                      dataKey="avgPrice"
+                      name={trendData.categoryName}
+                      stroke="#5BA3C0"
+                      strokeWidth={2}
+                      dot={{ r: 3, fill: '#5BA3C0' }}
+                      activeDot={{ r: 5 }}
+                    />
+                  )}
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* 数据摘要 */}
+            <div className="mt-4 pt-4 border-t border-white/10">
+              <div className="flex flex-wrap gap-4 text-xs text-white/60">
+                <span>分类: <span className="text-white">{trendData.categoryName}</span></span>
+                <span>数据点: <span className="text-white">{trendData.aggregatedTrend.length}</span></span>
+                {trendData.aggregatedTrend.length > 0 && (
+                  <>
+                    <span>
+                      最低: <span className="text-ios-green">¥{Math.min(...trendData.aggregatedTrend.map(d => d.avgPrice)).toFixed(2)}</span>
+                    </span>
+                    <span>
+                      最高: <span className="text-ios-red">¥{Math.max(...trendData.aggregatedTrend.map(d => d.avgPrice)).toFixed(2)}</span>
+                    </span>
+                  </>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+      </GlassCard>
+    );
+  };
+
   // 渲染当前视图内容
   const renderContent = () => {
     switch (currentView) {
@@ -1240,6 +1505,7 @@ export const AdminPanel: React.FC = () => {
       case 'monitoring': return renderMonitoring();
       case 'alerts': return renderAlerts();
       case 'reports': return renderReports();
+      case 'price-trend': return renderPriceTrend();
       case 'users': return renderUsers();
       case 'restaurants': return renderRestaurants();
       case 'suppliers': return renderSuppliers();
@@ -1679,17 +1945,18 @@ export const AdminPanel: React.FC = () => {
               <Icons.ChevronDown className={`w-4 h-4 text-white/60 transition-transform ${showUserMenu ? 'rotate-180' : ''}`} />
             </div>
 
-            {/* 用户菜单 - 移动端侧边栏 - 使用 fixed 定位避免被裁剪 */}
+            {/* 用户菜单 - 移动端侧边栏 - 触摸事件优化 */}
             {showUserMenu && (
               <div
-                className="fixed left-4 right-4 bottom-24 rounded-glass-lg overflow-hidden z-[200]"
+                className="absolute left-2 right-2 bottom-full mb-2 rounded-glass-lg overflow-hidden z-[200]"
                 style={{
                   background: 'rgba(25,25,30,0.95)',
                   backdropFilter: 'blur(24px)',
-                  border: '1px solid rgba(255,255,255,0.15)',
-                  maxWidth: '232px'
+                  border: '1px solid rgba(255,255,255,0.15)'
                 }}
                 onClick={(e) => e.stopPropagation()}
+                onTouchStart={(e) => e.stopPropagation()}
+                onTouchEnd={(e) => e.stopPropagation()}
               >
                 <button
                   onClick={() => {
@@ -1697,10 +1964,18 @@ export const AdminPanel: React.FC = () => {
                     setMobileSidebarOpen(false);
                     window.dispatchEvent(new CustomEvent('admin-change-password'));
                   }}
-                  className="w-full flex items-center gap-3 px-4 py-3 text-white/80 hover:bg-white/10 transition-colors cursor-pointer"
+                  onTouchStart={(e) => e.stopPropagation()}
+                  onTouchEnd={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setShowUserMenu(false);
+                    setMobileSidebarOpen(false);
+                    window.dispatchEvent(new CustomEvent('admin-change-password'));
+                  }}
+                  className="w-full flex items-center gap-4 px-4 py-4 min-h-[52px] text-white/80 hover:bg-white/10 active:bg-white/20 transition-colors cursor-pointer"
                 >
-                  <Icons.Key className="w-5 h-5" />
-                  <span className="text-sm font-medium">修改密码</span>
+                  <Icons.Key className="w-6 h-6 flex-shrink-0" />
+                  <span className="text-base font-medium">修改密码</span>
                 </button>
                 <div className="border-t border-white/10" />
                 <button
@@ -1709,10 +1984,18 @@ export const AdminPanel: React.FC = () => {
                     setMobileSidebarOpen(false);
                     logout();
                   }}
-                  className="w-full flex items-center gap-3 px-4 py-3 text-red-400 hover:bg-white/10 transition-colors cursor-pointer"
+                  onTouchStart={(e) => e.stopPropagation()}
+                  onTouchEnd={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setShowUserMenu(false);
+                    setMobileSidebarOpen(false);
+                    logout();
+                  }}
+                  className="w-full flex items-center gap-4 px-4 py-4 min-h-[52px] text-red-400 hover:bg-white/10 active:bg-white/20 transition-colors cursor-pointer"
                 >
-                  <Icons.Logout className="w-5 h-5" />
-                  <span className="text-sm font-medium">退出登录</span>
+                  <Icons.Logout className="w-6 h-6 flex-shrink-0" />
+                  <span className="text-base font-medium">退出登录</span>
                 </button>
               </div>
             )}

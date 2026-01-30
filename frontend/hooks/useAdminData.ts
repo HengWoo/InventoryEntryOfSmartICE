@@ -1,5 +1,9 @@
 /**
  * 管理员数据 SWR Hooks
+ * v1.2 - 价格趋势分析功能：
+ *   - 添加 useCategoriesByBrand 按品牌获取分类
+ *   - 添加 useCategoryPriceTrend 获取价格趋势数据
+ *
  * v1.1 - 支持品牌过滤、CRUD 操作、门店明细
  *
  * v1.0 - 初始版本：SWR 缓存实现
@@ -19,6 +23,8 @@ import {
   getBrandList,
   getCategoryList,
   getUnitList,
+  getCategoriesByBrand,
+  getCategoryPriceTrend,
   createSupplier,
   updateSupplier,
   deleteSupplier,
@@ -34,7 +40,9 @@ import {
   BrandView,
   PriceAlertExtended,
   SupplierInput,
-  MaterialInput
+  MaterialInput,
+  CategoryView,
+  CategoryPriceTrendResponse
 } from '../services/adminService';
 import { RestaurantEntryStatus, AdminUserView } from '../types';
 
@@ -59,6 +67,7 @@ const CACHE_TTL = {
   brands: 30 * 60 * 1000,
   categories: 30 * 60 * 1000,
   units: 30 * 60 * 1000,
+  priceTrend: 5 * 60 * 1000,
 };
 
 /**
@@ -383,5 +392,51 @@ export function useRestaurantDetails(restaurantId: string | null, days: number =
     details: data || [],
     isLoading,
     isError: !!error,
+  };
+}
+
+/**
+ * 按品牌获取分类列表 Hook
+ */
+export function useCategoriesByBrand(brandId: number | undefined) {
+  const { data, error, isLoading } = useSWR<CategoryView[]>(
+    brandId ? ['admin/categories-by-brand', brandId] : null,
+    () => brandId ? getCategoriesByBrand(brandId) : Promise.resolve([]),
+    {
+      ...defaultConfig,
+      refreshInterval: CACHE_TTL.categories,
+    }
+  );
+
+  return {
+    categories: data || [],
+    isLoading,
+    isError: !!error,
+  };
+}
+
+/**
+ * 分类价格趋势 Hook
+ */
+export function useCategoryPriceTrend(
+  brandId: number | undefined,
+  categoryId: number | undefined,
+  days: number = 30
+) {
+  const { data, error, isLoading, mutate } = useSWR<CategoryPriceTrendResponse | null>(
+    brandId && categoryId ? ['admin/price-trend', brandId, categoryId, days] : null,
+    () => brandId && categoryId ? getCategoryPriceTrend(brandId, categoryId, days) : Promise.resolve(null),
+    {
+      ...defaultConfig,
+      refreshInterval: CACHE_TTL.priceTrend,
+    }
+  );
+
+  return {
+    trendData: data,
+    isLoading,
+    isError: !!error,
+    error,
+    refresh: mutate,
   };
 }

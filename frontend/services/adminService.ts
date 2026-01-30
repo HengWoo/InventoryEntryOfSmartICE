@@ -1,5 +1,10 @@
 /**
  * 管理员面板服务
+ * v1.5 - 价格趋势分析功能：
+ *   - 添加 getCategoriesByBrand 获取品牌下的分类列表
+ *   - 添加 getCategoryPriceTrend 获取分类价格趋势数据
+ *   - 支持整体趋势和物料拆分视图
+ *
  * v1.4 - 修复供应商列表过滤：
  *   - 添加 is_active 过滤，只显示活跃供应商
  *
@@ -895,5 +900,213 @@ export async function getRestaurantPurchaseDetails(restaurantId: string, days: n
   } catch (error) {
     console.error('[AdminService] 获取门店明细失败:', error);
     return [];
+  }
+}
+
+// ==================== 价格趋势分析 ====================
+
+// 价格趋势数据点
+export interface PriceTrendDataPoint {
+  date: string;
+  avgPrice: number;
+}
+
+// 物料价格趋势（拆分视图）
+export interface MaterialPriceTrend {
+  materialId: number;
+  materialName: string;
+  data: PriceTrendDataPoint[];
+}
+
+// 分类价格趋势响应
+export interface CategoryPriceTrendResponse {
+  categoryId: number;
+  categoryName: string;
+  aggregatedTrend: PriceTrendDataPoint[];  // 整体平均
+  materialTrends: MaterialPriceTrend[];     // 各物料明细
+}
+
+// 分类视图（用于下拉选择）
+export interface CategoryView {
+  id: number;
+  name: string;
+}
+
+/**
+ * 获取品牌下的分类列表
+ */
+export async function getCategoriesByBrand(brandId: number): Promise<CategoryView[]> {
+  try {
+    // 获取该品牌下有物料的分类
+    const { data: materials, error: matError } = await supabase
+      .from('ims_material')
+      .select('category_id')
+      .eq('brand_id', brandId)
+      .eq('is_active', true);
+
+    if (matError || !materials) {
+      console.error('[AdminService] 获取品牌物料失败:', matError);
+      return [];
+    }
+
+    // 获取唯一的分类ID
+    const categoryIds = [...new Set(materials.map(m => m.category_id).filter(Boolean))];
+
+    if (categoryIds.length === 0) {
+      return [];
+    }
+
+    // 获取分类详情
+    const { data: categories, error: catError } = await supabase
+      .from('ims_category')
+      .select('id, name')
+      .in('id', categoryIds)
+      .order('name');
+
+    if (catError || !categories) {
+      console.error('[AdminService] 获取分类列表失败:', catError);
+      return [];
+    }
+
+    return categories;
+  } catch (error) {
+    console.error('[AdminService] 获取品牌分类失败:', error);
+    return [];
+  }
+}
+
+/**
+ * 获取分类价格趋势数据
+ */
+export async function getCategoryPriceTrend(
+  brandId: number,
+  categoryId: number,
+  days: number = 30
+): Promise<CategoryPriceTrendResponse | null> {
+  try {
+    const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+    // 获取分类信息
+    const { data: category, error: catError } = await supabase
+      .from('ims_category')
+      .select('id, name')
+      .eq('id', categoryId)
+      .single();
+
+    if (catError || !category) {
+      console.error('[AdminService] 获取分类信息失败:', catError);
+      return null;
+    }
+
+    // 获取该品牌+分类下的物料
+    const { data: materials, error: matError } = await supabase
+      .from('ims_material')
+      .select('id, name')
+      .eq('brand_id', brandId)
+      .eq('category_id', categoryId)
+      .eq('is_active', true);
+
+    if (matError || !materials || materials.length === 0) {
+      console.error('[AdminService] 获取物料列表失败:', matError);
+      return {
+        categoryId: category.id,
+        categoryName: category.name,
+        aggregatedTrend: [],
+        materialTrends: []
+      };
+    }
+
+    const materialIds = materials.map(m => m.id);
+    const materialMap = new Map<number, string>();
+    materials.forEach(m => materialMap.set(m.id, m.name));
+
+    // 获取价格记录
+    const { data: priceRecords, error: priceError } = await supabase
+      .from('ims_material_price')
+      .select('material_id, unit_price, price_date')
+      .in('material_id', materialIds)
+      .gte('price_date', startDate)
+      .not('unit_price', 'is', null)
+      .order('price_date', { ascending: true });
+
+    if (priceError || !priceRecords) {
+      console.error('[AdminService] 获取价格记录失败:', priceError);
+      return {
+        categoryId: category.id,
+        categoryName: category.name,
+        aggregatedTrend: [],
+        materialTrends: []
+      };
+    }
+
+    // 按日期聚合整体平均价格
+    const dateAggregation: Record<string, { sum: number; count: number }> = {};
+    // 按物料+日期聚合
+    const materialDateAggregation: Record<number, Record<string, { sum: number; count: number }>> = {};
+
+    priceRecords.forEach((record) => {
+      const date = record.price_date;
+      const price = record.unit_price;
+      const materialId = record.material_id;
+
+      if (!date || !price || !materialId) return;
+
+      // 整体聚合
+      if (!dateAggregation[date]) {
+        dateAggregation[date] = { sum: 0, count: 0 };
+      }
+      dateAggregation[date].sum += price;
+      dateAggregation[date].count += 1;
+
+      // 物料聚合
+      if (!materialDateAggregation[materialId]) {
+        materialDateAggregation[materialId] = {};
+      }
+      if (!materialDateAggregation[materialId][date]) {
+        materialDateAggregation[materialId][date] = { sum: 0, count: 0 };
+      }
+      materialDateAggregation[materialId][date].sum += price;
+      materialDateAggregation[materialId][date].count += 1;
+    });
+
+    // 生成整体趋势数据
+    const aggregatedTrend: PriceTrendDataPoint[] = Object.entries(dateAggregation)
+      .map(([date, { sum, count }]) => ({
+        date,
+        avgPrice: Math.round((sum / count) * 100) / 100
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    // 生成各物料趋势数据（最多6个）
+    const materialTrends: MaterialPriceTrend[] = [];
+    const sortedMaterialIds = Object.keys(materialDateAggregation)
+      .map(Number)
+      .slice(0, 6);
+
+    sortedMaterialIds.forEach((materialId) => {
+      const materialData = materialDateAggregation[materialId];
+      const data: PriceTrendDataPoint[] = Object.entries(materialData)
+        .map(([date, { sum, count }]) => ({
+          date,
+          avgPrice: Math.round((sum / count) * 100) / 100
+        }))
+        .sort((a, b) => a.date.localeCompare(b.date));
+
+      materialTrends.push({
+        materialId,
+        materialName: materialMap.get(materialId) || '未知物料',
+        data
+      });
+    });
+
+    return {
+      categoryId: category.id,
+      categoryName: category.name,
+      aggregatedTrend,
+      materialTrends
+    };
+  } catch (error) {
+    console.error('[AdminService] 获取价格趋势失败:', error);
+    return null;
   }
 }
