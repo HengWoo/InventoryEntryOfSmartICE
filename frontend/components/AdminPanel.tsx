@@ -1,5 +1,11 @@
 /**
  * 管理员面板主组件
+ * v2.9 - 价格趋势交互优化：
+ *   - 点击锁定高亮：点击图例或线条锁定选中物料，再次点击取消
+ *   - Tooltip 优化：只在锁定物料后显示，仅显示选中物料的日期和单价
+ *   - 报表类页面使用更宽容器（max-w-6xl）：价格趋势、数据报表、异常告警、录入监控
+ *   - 添加操作提示：显示当前选中状态和取消按钮
+ *
  * v2.8 - 价格趋势分析功能：
  *   - 新增"价格趋势"页面（报表大类下）
  *   - 支持品牌→分类→时间范围筛选
@@ -122,6 +128,8 @@ export const AdminPanel: React.FC = () => {
   const [priceTrendCategoryId, setPriceTrendCategoryId] = useState<number | undefined>(undefined);
   const [priceTrendDays, setPriceTrendDays] = useState<number>(30);
   const [showMaterialSplit, setShowMaterialSplit] = useState(false);
+  // v2.9: 点击锁定高亮（null = 未锁定，string = 锁定的物料名称）
+  const [lockedMaterial, setLockedMaterial] = useState<string | null>(null);
 
   // v2.3: 搜索状态
   const [supplierSearch, setSupplierSearch] = useState('');
@@ -1270,8 +1278,11 @@ export const AdminPanel: React.FC = () => {
 
   // v2.8: 渲染价格趋势视图
   const renderPriceTrend = () => {
-    // 折线图颜色配置
-    const lineColors = ['#5BA3C0', '#6B9E8A', '#E8A54C', '#E85A4F', '#9370DB', '#4ECDC4'];
+    // 折线图颜色配置（12种颜色）
+    const lineColors = [
+      '#5BA3C0', '#6B9E8A', '#E8A54C', '#E85A4F', '#9370DB', '#4ECDC4',
+      '#FF6B6B', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD', '#98D8C8'
+    ];
 
     // 品牌选项
     const trendBrandOptions = brands.map((b) => ({ value: b.id, label: b.name }));
@@ -1402,11 +1413,28 @@ export const AdminPanel: React.FC = () => {
           </div>
         ) : (
           <>
-            {/* 拆分/收起按钮 */}
+            {/* 拆分/收起按钮 + 操作提示 */}
             {trendData.materialTrends.length > 0 && (
-              <div className="flex justify-end mb-2">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-xs text-white/40">
+                  {showMaterialSplit && !lockedMaterial && '点击下方图例可锁定单个物料'}
+                  {showMaterialSplit && lockedMaterial && (
+                    <span className="text-ios-blue">
+                      已锁定: {lockedMaterial}
+                      <button
+                        onClick={() => setLockedMaterial(null)}
+                        className="ml-2 text-white/50 hover:text-white"
+                      >
+                        ✕ 取消
+                      </button>
+                    </span>
+                  )}
+                </div>
                 <button
-                  onClick={() => setShowMaterialSplit(!showMaterialSplit)}
+                  onClick={() => {
+                    setShowMaterialSplit(!showMaterialSplit);
+                    setLockedMaterial(null); // 切换时重置锁定
+                  }}
                   className="text-xs text-ios-blue hover:text-ios-blue/80 transition-colors"
                 >
                   {showMaterialSplit ? '收起物料明细' : `拆分查看 (${trendData.materialTrends.length} 个物料)`}
@@ -1415,8 +1443,8 @@ export const AdminPanel: React.FC = () => {
             )}
 
             {/* 折线图 */}
-            <div className="h-[250px] md:h-[300px]">
-              <ResponsiveContainer width="100%" height="100%">
+            <div className="h-[250px] md:h-[300px] min-h-[250px]">
+              <ResponsiveContainer width="100%" height="100%" minWidth={200} minHeight={200}>
                 <LineChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
                   <XAxis
@@ -1432,33 +1460,140 @@ export const AdminPanel: React.FC = () => {
                     axisLine={{ stroke: 'rgba(255,255,255,0.2)' }}
                     tickFormatter={(value) => `¥${value}`}
                   />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'rgba(30,35,40,0.95)',
-                      border: '1px solid rgba(255,255,255,0.15)',
-                      borderRadius: '8px',
-                      color: '#fff',
-                    }}
-                    labelFormatter={(label) => `日期: ${label}`}
-                    formatter={(value: number) => [`¥${value.toFixed(2)}`, '单价']}
-                  />
+                  {/* 拆分视图的 Tooltip - 跟随鼠标 */}
+                  {showMaterialSplit && (
+                    <Tooltip
+                      position={{ y: 0 }}
+                      offset={15}
+                      content={({ active, payload, label }) => {
+                        if (!active || !payload || payload.length === 0) return null;
+
+                        // 如果锁定了物料，只显示锁定物料的数据
+                        if (lockedMaterial) {
+                          const lockedData = payload.find((p: { dataKey: string }) => p.dataKey === lockedMaterial);
+                          if (!lockedData || lockedData.value === undefined) return null;
+                          return (
+                            <div style={{
+                              backgroundColor: 'rgba(30,35,40,0.95)',
+                              border: '1px solid rgba(255,255,255,0.15)',
+                              borderRadius: '8px',
+                              padding: '8px 12px',
+                              pointerEvents: 'none',
+                            }}>
+                              <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: '11px', marginBottom: '4px' }}>
+                                {label}
+                              </div>
+                              <div style={{ color: '#fff', fontSize: '14px', fontWeight: 500 }}>
+                                ¥{(lockedData.value as number).toFixed(2)}
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        // 未锁定时，显示所有有数据的物料
+                        const validPayload = payload.filter((p: { value: number | undefined }) => p.value !== undefined);
+                        if (validPayload.length === 0) return null;
+
+                        return (
+                          <div style={{
+                            backgroundColor: 'rgba(30,35,40,0.95)',
+                            border: '1px solid rgba(255,255,255,0.15)',
+                            borderRadius: '8px',
+                            padding: '8px 12px',
+                            maxHeight: '200px',
+                            overflowY: 'auto',
+                            pointerEvents: 'none',
+                          }}>
+                            <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: '11px', marginBottom: '6px' }}>
+                              {label}
+                            </div>
+                            {validPayload.slice(0, 6).map((item: { dataKey: string; value: number; color: string }, idx: number) => (
+                              <div key={idx} style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                marginBottom: idx < validPayload.length - 1 ? '4px' : 0,
+                                fontSize: '12px'
+                              }}>
+                                <span style={{
+                                  width: '8px',
+                                  height: '8px',
+                                  borderRadius: '50%',
+                                  backgroundColor: item.color,
+                                  flexShrink: 0
+                                }} />
+                                <span style={{ color: 'rgba(255,255,255,0.7)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100px' }}>
+                                  {item.dataKey}
+                                </span>
+                                <span style={{ color: '#fff', fontWeight: 500 }}>
+                                  ¥{item.value.toFixed(2)}
+                                </span>
+                              </div>
+                            ))}
+                            {validPayload.length > 6 && (
+                              <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: '10px', marginTop: '4px' }}>
+                                还有 {validPayload.length - 6} 个物料...
+                              </div>
+                            )}
+                          </div>
+                        );
+                      }}
+                    />
+                  )}
+                  {/* 非拆分视图的默认 Tooltip */}
+                  {!showMaterialSplit && (
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'rgba(30,35,40,0.95)',
+                        border: '1px solid rgba(255,255,255,0.15)',
+                        borderRadius: '8px',
+                        color: '#fff',
+                      }}
+                      labelFormatter={(label) => `日期: ${label}`}
+                      formatter={(value: number) => [`¥${value.toFixed(2)}`, '单价']}
+                    />
+                  )}
                   {showMaterialSplit && trendData.materialTrends.length > 0 ? (
                     <>
                       <Legend
-                        wrapperStyle={{ paddingTop: '10px' }}
-                        formatter={(value) => <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '12px' }}>{value}</span>}
+                        wrapperStyle={{ paddingTop: '10px', cursor: 'pointer' }}
+                        formatter={(value) => (
+                          <span
+                            style={{
+                              color: lockedMaterial === null || lockedMaterial === value
+                                ? 'rgba(255,255,255,0.9)'
+                                : 'rgba(255,255,255,0.3)',
+                              fontSize: '12px',
+                              fontWeight: lockedMaterial === value ? 600 : 400,
+                              transition: 'all 0.2s ease'
+                            }}
+                          >
+                            {value}
+                          </span>
+                        )}
+                        onClick={(e) => {
+                          const materialName = e.dataKey as string;
+                          // 点击同一个物料时取消锁定，否则锁定新物料
+                          setLockedMaterial(lockedMaterial === materialName ? null : materialName);
+                        }}
                       />
-                      {trendData.materialTrends.map((material, index) => (
-                        <Line
-                          key={material.materialId}
-                          type="monotone"
-                          dataKey={material.materialName}
-                          stroke={lineColors[index % lineColors.length]}
-                          strokeWidth={2}
-                          dot={{ r: 3, fill: lineColors[index % lineColors.length] }}
-                          activeDot={{ r: 5 }}
-                        />
-                      ))}
+                      {trendData.materialTrends.map((material, index) => {
+                        const isActive = lockedMaterial === null || lockedMaterial === material.materialName;
+                        return (
+                          <Line
+                            key={material.materialId}
+                            type="monotone"
+                            dataKey={material.materialName}
+                            stroke={lineColors[index % lineColors.length]}
+                            strokeWidth={lockedMaterial === material.materialName ? 3 : 2}
+                            strokeOpacity={isActive ? 1 : 0.15}
+                            dot={{ r: 3, fill: lineColors[index % lineColors.length], fillOpacity: isActive ? 1 : 0.15 }}
+                            activeDot={isActive ? { r: 5, strokeWidth: 2, stroke: '#fff' } : { r: 0 }}
+                            connectNulls={true}
+                            style={{ transition: 'all 0.2s ease' }}
+                          />
+                        );
+                      })}
                     </>
                   ) : (
                     <Line
@@ -2005,7 +2140,7 @@ export const AdminPanel: React.FC = () => {
 
       {/* 主内容区 */}
       <div className="flex-1 overflow-y-auto p-4 md:p-6">
-        <div className="max-w-4xl mx-auto">
+        <div className={['price-trend', 'reports', 'alerts', 'monitoring'].includes(currentView) ? 'max-w-6xl mx-auto' : 'max-w-4xl mx-auto'}>
           {renderContent()}
         </div>
       </div>

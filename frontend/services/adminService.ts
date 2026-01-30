@@ -1077,11 +1077,17 @@ export async function getCategoryPriceTrend(
       }))
       .sort((a, b) => a.date.localeCompare(b.date));
 
-    // 生成各物料趋势数据（最多6个）
+    // 生成各物料趋势数据（最多12个，按数据点数量排序）
     const materialTrends: MaterialPriceTrend[] = [];
     const sortedMaterialIds = Object.keys(materialDateAggregation)
       .map(Number)
-      .slice(0, 6);
+      .sort((a, b) => {
+        // 按数据点数量降序排列，优先显示数据更多的物料
+        const countA = Object.keys(materialDateAggregation[a]).length;
+        const countB = Object.keys(materialDateAggregation[b]).length;
+        return countB - countA;
+      })
+      .slice(0, 12);
 
     sortedMaterialIds.forEach((materialId) => {
       const materialData = materialDateAggregation[materialId];
