@@ -1,5 +1,13 @@
 /**
  * 管理员面板主组件
+ * v2.10 - 多门店价格趋势对比：
+ *   - 支持多选门店进行价格趋势对比
+ *   - 不同门店使用不同线型（实线、虚线、点线等）
+ *   - 物料拆分视图：同物料同颜色，不同门店不同线型
+ *   - 点击图例锁定物料时，同物料的所有门店线一起高亮
+ *   - Tooltip 显示门店名称 + 物料名称 + 价格
+ *   - 添加门店线型图例说明
+ *
  * v2.9 - 价格趋势交互优化：
  *   - 点击锁定高亮：点击图例或线条锁定选中物料，再次点击取消
  *   - Tooltip 优化：只在锁定物料后显示，仅显示选中物料的日期和单价
@@ -125,6 +133,7 @@ export const AdminPanel: React.FC = () => {
 
   // v2.8: 价格趋势状态
   const [priceTrendBrandId, setPriceTrendBrandId] = useState<number | undefined>(undefined);
+  const [priceTrendRestaurantIds, setPriceTrendRestaurantIds] = useState<string[]>([]);
   const [priceTrendCategoryId, setPriceTrendCategoryId] = useState<number | undefined>(undefined);
   const [priceTrendDays, setPriceTrendDays] = useState<number>(30);
   const [showMaterialSplit, setShowMaterialSplit] = useState(false);
@@ -165,7 +174,12 @@ export const AdminPanel: React.FC = () => {
   const { details: restaurantDetails, isLoading: detailsLoading } = useRestaurantDetails(expandedRestaurantId, reportDays);
   // v2.8: 价格趋势数据
   const { categories: trendCategories, isLoading: trendCategoriesLoading } = useCategoriesByBrand(priceTrendBrandId);
-  const { trendData, isLoading: trendLoading } = useCategoryPriceTrend(priceTrendBrandId, priceTrendCategoryId, priceTrendDays);
+  const { trendData, isLoading: trendLoading } = useCategoryPriceTrend(
+    priceTrendBrandId,
+    priceTrendCategoryId,
+    priceTrendDays,
+    priceTrendRestaurantIds.length > 0 ? priceTrendRestaurantIds : undefined
+  );
 
   // v2.3: 过滤后的供应商和物料列表（支持搜索）
   const filteredSuppliers = useMemo(() => {
@@ -1303,14 +1317,66 @@ export const AdminPanel: React.FC = () => {
       return `${date.getMonth() + 1}/${date.getDate()}`;
     };
 
+    // 门店线型配置（最多支持6家门店）
+    const restaurantLineStyles = [
+      { dashArray: '', dotType: 'circle' },      // 实线 + 圆点
+      { dashArray: '5 5', dotType: 'square' },   // 虚线 + 方点
+      { dashArray: '3 3', dotType: 'diamond' },  // 短虚线 + 菱形
+      { dashArray: '1 4', dotType: 'triangle' }, // 点线 + 三角
+      { dashArray: '8 4', dotType: 'star' },     // 长虚线 + 星形
+      { dashArray: '8 4 2 4', dotType: 'cross' },// 点划线 + 十字
+    ];
+
+    // 获取该品牌下的门店列表
+    const trendRestaurantOptions = restaurants
+      .filter(r => r.brand_id === priceTrendBrandId)
+      .map(r => ({ value: r.id, label: r.restaurant_name }));
+
+    // 判断是否为多门店对比模式
+    const isMultiRestaurant = priceTrendRestaurantIds.length > 1;
+    const hasRestaurantData = trendData?.restaurantData && trendData.restaurantData.length > 0;
+
     // 准备图表数据
     const chartData = (() => {
       if (!trendData) return [];
 
-      if (showMaterialSplit && trendData.materialTrends.length > 0) {
-        // 拆分视图：合并所有物料数据
+      // 多门店对比模式
+      if (isMultiRestaurant && hasRestaurantData) {
         const dateMap: Record<string, Record<string, number>> = {};
 
+        if (showMaterialSplit) {
+          // 物料明细视图：每个门店的每个物料一条线
+          trendData.restaurantData.forEach((rest) => {
+            rest.materialTrends.forEach((material) => {
+              const key = `${rest.restaurantName}|${material.materialName}`;
+              material.data.forEach((point) => {
+                if (!dateMap[point.date]) {
+                  dateMap[point.date] = {};
+                }
+                dateMap[point.date][key] = point.avgPrice;
+              });
+            });
+          });
+        } else {
+          // 汇总视图：每个门店一条线
+          trendData.restaurantData.forEach((rest) => {
+            rest.aggregatedTrend.forEach((point) => {
+              if (!dateMap[point.date]) {
+                dateMap[point.date] = {};
+              }
+              dateMap[point.date][rest.restaurantName] = point.avgPrice;
+            });
+          });
+        }
+
+        return Object.entries(dateMap)
+          .map(([date, values]) => ({ date, ...values }))
+          .sort((a, b) => a.date.localeCompare(b.date));
+      }
+
+      // 单门店或无门店选择：使用合计数据
+      if (showMaterialSplit && trendData.materialTrends.length > 0) {
+        const dateMap: Record<string, Record<string, number>> = {};
         trendData.materialTrends.forEach((material) => {
           material.data.forEach((point) => {
             if (!dateMap[point.date]) {
@@ -1319,20 +1385,88 @@ export const AdminPanel: React.FC = () => {
             dateMap[point.date][material.materialName] = point.avgPrice;
           });
         });
-
         return Object.entries(dateMap)
-          .map(([date, values]) => ({
-            date,
-            ...values,
-          }))
+          .map(([date, values]) => ({ date, ...values }))
           .sort((a, b) => a.date.localeCompare(b.date));
       } else {
-        // 整体视图
         return trendData.aggregatedTrend.map((point) => ({
           date: point.date,
           avgPrice: point.avgPrice,
         }));
       }
+    })();
+
+    // 生成线条配置
+    const lineConfigs = (() => {
+      if (!trendData) return [];
+
+      // 多门店对比模式
+      if (isMultiRestaurant && hasRestaurantData) {
+        const configs: Array<{
+          dataKey: string;
+          name: string;
+          color: string;
+          dashArray: string;
+          restaurantName: string;
+          materialName?: string;
+          restaurantIndex: number;
+        }> = [];
+
+        if (showMaterialSplit) {
+          // 物料明细视图
+          trendData.restaurantData.forEach((rest, restIdx) => {
+            const style = restaurantLineStyles[restIdx % restaurantLineStyles.length];
+            rest.materialTrends.forEach((material, matIdx) => {
+              configs.push({
+                dataKey: `${rest.restaurantName}|${material.materialName}`,
+                name: `${rest.restaurantName} - ${material.materialName}`,
+                color: lineColors[matIdx % lineColors.length],
+                dashArray: style.dashArray,
+                restaurantName: rest.restaurantName,
+                materialName: material.materialName,
+                restaurantIndex: restIdx,
+              });
+            });
+          });
+        } else {
+          // 汇总视图
+          trendData.restaurantData.forEach((rest, restIdx) => {
+            const style = restaurantLineStyles[restIdx % restaurantLineStyles.length];
+            configs.push({
+              dataKey: rest.restaurantName,
+              name: rest.restaurantName,
+              color: lineColors[restIdx % lineColors.length],
+              dashArray: style.dashArray,
+              restaurantName: rest.restaurantName,
+              restaurantIndex: restIdx,
+            });
+          });
+        }
+        return configs;
+      }
+
+      // 单门店模式
+      if (showMaterialSplit && trendData.materialTrends.length > 0) {
+        return trendData.materialTrends.map((material, idx) => ({
+          dataKey: material.materialName,
+          name: material.materialName,
+          color: lineColors[idx % lineColors.length],
+          dashArray: '',
+          restaurantName: '',
+          materialName: material.materialName,
+          restaurantIndex: 0,
+        }));
+      }
+
+      return [] as Array<{
+        dataKey: string;
+        name: string;
+        color: string;
+        dashArray: string;
+        restaurantName: string;
+        materialName?: string;
+        restaurantIndex: number;
+      }>;
     })();
 
     return (
@@ -1350,11 +1484,28 @@ export const AdminPanel: React.FC = () => {
                 value={priceTrendBrandId}
                 onChange={(v) => {
                   setPriceTrendBrandId(v as number | undefined);
+                  setPriceTrendRestaurantIds([]); // 重置门店
                   setPriceTrendCategoryId(undefined); // 重置分类
                   setShowMaterialSplit(false);
                 }}
                 placeholder="选择品牌"
                 size="small"
+              />
+            </div>
+
+            {/* 门店选择（多选） */}
+            <div className="flex-1 min-w-[140px]">
+              <label className="block text-xs text-white/60 mb-1">门店</label>
+              <GlassSelect
+                multiple
+                options={trendRestaurantOptions}
+                value={priceTrendRestaurantIds}
+                onChange={(v) => setPriceTrendRestaurantIds(v as string[])}
+                placeholder={priceTrendBrandId ? '全部门店' : '请先选择品牌'}
+                size="small"
+                searchable
+                searchPlaceholder="搜索门店..."
+                disabled={!priceTrendBrandId}
               />
             </div>
 
@@ -1413,37 +1564,63 @@ export const AdminPanel: React.FC = () => {
           </div>
         ) : (
           <>
-            {/* 拆分/收起按钮 + 操作提示 */}
-            {trendData.materialTrends.length > 0 && (
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-xs text-white/40">
-                  {showMaterialSplit && !lockedMaterial && '点击下方图例可锁定单个物料'}
-                  {showMaterialSplit && lockedMaterial && (
-                    <span className="text-ios-blue">
-                      已锁定: {lockedMaterial}
-                      <button
-                        onClick={() => setLockedMaterial(null)}
-                        className="ml-2 text-white/50 hover:text-white"
-                      >
-                        ✕ 取消
-                      </button>
-                    </span>
+            {/* 操作提示 */}
+            {(trendData.materialTrends.length > 0 || isMultiRestaurant) && (
+              <div className="flex flex-col gap-2 mb-2">
+                <div className="flex items-center justify-between">
+                  <div className="text-xs text-white/40">
+                    {isMultiRestaurant && !showMaterialSplit && '不同线型代表不同门店'}
+                    {showMaterialSplit && !lockedMaterial && '点击图例可锁定物料'}
+                    {showMaterialSplit && lockedMaterial && (
+                      <span className="text-ios-blue">
+                        已锁定: {lockedMaterial}
+                        <button
+                          onClick={() => setLockedMaterial(null)}
+                          className="ml-2 text-white/50 hover:text-white"
+                        >
+                          ✕ 取消
+                        </button>
+                      </span>
+                    )}
+                  </div>
+                  {trendData.materialTrends.length > 0 && (
+                    <button
+                      onClick={() => {
+                        setShowMaterialSplit(!showMaterialSplit);
+                        setLockedMaterial(null);
+                      }}
+                      className="text-xs text-ios-blue hover:text-ios-blue/80 transition-colors"
+                    >
+                      {showMaterialSplit ? '收起物料明细' : `拆分查看 (${trendData.materialTrends.length} 个物料)`}
+                    </button>
                   )}
                 </div>
-                <button
-                  onClick={() => {
-                    setShowMaterialSplit(!showMaterialSplit);
-                    setLockedMaterial(null); // 切换时重置锁定
-                  }}
-                  className="text-xs text-ios-blue hover:text-ios-blue/80 transition-colors"
-                >
-                  {showMaterialSplit ? '收起物料明细' : `拆分查看 (${trendData.materialTrends.length} 个物料)`}
-                </button>
+                {/* 多门店线型图例 */}
+                {isMultiRestaurant && hasRestaurantData && (
+                  <div className="flex flex-wrap gap-3 text-xs text-white/50">
+                    {trendData.restaurantData.slice(0, 6).map((rest, idx) => {
+                      const style = restaurantLineStyles[idx % restaurantLineStyles.length];
+                      return (
+                        <div key={rest.restaurantId} className="flex items-center gap-1.5">
+                          <svg width="20" height="8" className="flex-shrink-0">
+                            <line
+                              x1="0" y1="4" x2="20" y2="4"
+                              stroke="rgba(255,255,255,0.6)"
+                              strokeWidth="2"
+                              strokeDasharray={style.dashArray}
+                            />
+                          </svg>
+                          <span>{rest.restaurantName}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
 
             {/* 折线图 */}
-            <div className="h-[250px] md:h-[300px] min-h-[250px]">
+            <div className="h-[320px] md:h-[400px] min-h-[320px]">
               <ResponsiveContainer width="100%" height="100%" minWidth={200} minHeight={200}>
                 <LineChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
@@ -1460,8 +1637,8 @@ export const AdminPanel: React.FC = () => {
                     axisLine={{ stroke: 'rgba(255,255,255,0.2)' }}
                     tickFormatter={(value) => `¥${value}`}
                   />
-                  {/* 拆分视图的 Tooltip - 跟随鼠标 */}
-                  {showMaterialSplit && (
+                  {/* 多门店对比或拆分视图的 Tooltip */}
+                  {(isMultiRestaurant || showMaterialSplit) && lineConfigs.length > 0 && (
                     <Tooltip
                       position={{ y: 0 }}
                       offset={15}
@@ -1470,8 +1647,11 @@ export const AdminPanel: React.FC = () => {
 
                         // 如果锁定了物料，只显示锁定物料的数据
                         if (lockedMaterial) {
-                          const lockedData = payload.find((p: { dataKey: string }) => p.dataKey === lockedMaterial);
-                          if (!lockedData || lockedData.value === undefined) return null;
+                          const lockedItems = payload.filter((p: { dataKey: string }) => {
+                            const config = lineConfigs.find(c => c.dataKey === p.dataKey);
+                            return config?.materialName === lockedMaterial || p.dataKey === lockedMaterial;
+                          });
+                          if (lockedItems.length === 0) return null;
                           return (
                             <div style={{
                               backgroundColor: 'rgba(30,35,40,0.95)',
@@ -1480,17 +1660,40 @@ export const AdminPanel: React.FC = () => {
                               padding: '8px 12px',
                               pointerEvents: 'none',
                             }}>
-                              <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: '11px', marginBottom: '4px' }}>
+                              <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: '11px', marginBottom: '6px' }}>
                                 {label}
                               </div>
-                              <div style={{ color: '#fff', fontSize: '14px', fontWeight: 500 }}>
-                                ¥{(lockedData.value as number).toFixed(2)}
-                              </div>
+                              {lockedItems.map((item: { dataKey: string; value: number; color: string }, idx: number) => {
+                                const config = lineConfigs.find(c => c.dataKey === item.dataKey);
+                                return (
+                                  <div key={idx} style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    marginBottom: idx < lockedItems.length - 1 ? '4px' : 0,
+                                    fontSize: '12px'
+                                  }}>
+                                    <span style={{
+                                      width: '8px',
+                                      height: '8px',
+                                      borderRadius: '50%',
+                                      backgroundColor: item.color,
+                                      flexShrink: 0
+                                    }} />
+                                    <span style={{ color: 'rgba(255,255,255,0.7)', flex: 1 }}>
+                                      {config?.restaurantName || item.dataKey}
+                                    </span>
+                                    <span style={{ color: '#fff', fontWeight: 500 }}>
+                                      ¥{item.value?.toFixed(2) || '-'}
+                                    </span>
+                                  </div>
+                                );
+                              })}
                             </div>
                           );
                         }
 
-                        // 未锁定时，显示所有有数据的物料
+                        // 未锁定时，显示所有有数据的项
                         const validPayload = payload.filter((p: { value: number | undefined }) => p.value !== undefined);
                         if (validPayload.length === 0) return null;
 
@@ -1507,32 +1710,40 @@ export const AdminPanel: React.FC = () => {
                             <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: '11px', marginBottom: '6px' }}>
                               {label}
                             </div>
-                            {validPayload.slice(0, 6).map((item: { dataKey: string; value: number; color: string }, idx: number) => (
-                              <div key={idx} style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '6px',
-                                marginBottom: idx < validPayload.length - 1 ? '4px' : 0,
-                                fontSize: '12px'
-                              }}>
-                                <span style={{
-                                  width: '8px',
-                                  height: '8px',
-                                  borderRadius: '50%',
-                                  backgroundColor: item.color,
-                                  flexShrink: 0
-                                }} />
-                                <span style={{ color: 'rgba(255,255,255,0.7)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100px' }}>
-                                  {item.dataKey}
-                                </span>
-                                <span style={{ color: '#fff', fontWeight: 500 }}>
-                                  ¥{item.value.toFixed(2)}
-                                </span>
-                              </div>
-                            ))}
-                            {validPayload.length > 6 && (
+                            {validPayload.slice(0, 8).map((item: { dataKey: string; value: number; color: string }, idx: number) => {
+                              const config = lineConfigs.find(c => c.dataKey === item.dataKey);
+                              const displayName = isMultiRestaurant && showMaterialSplit
+                                ? `${config?.restaurantName} - ${config?.materialName}`
+                                : isMultiRestaurant
+                                  ? config?.restaurantName
+                                  : item.dataKey;
+                              return (
+                                <div key={idx} style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '6px',
+                                  marginBottom: idx < validPayload.length - 1 ? '4px' : 0,
+                                  fontSize: '12px'
+                                }}>
+                                  <span style={{
+                                    width: '8px',
+                                    height: '8px',
+                                    borderRadius: '50%',
+                                    backgroundColor: item.color,
+                                    flexShrink: 0
+                                  }} />
+                                  <span style={{ color: 'rgba(255,255,255,0.7)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '120px' }}>
+                                    {displayName}
+                                  </span>
+                                  <span style={{ color: '#fff', fontWeight: 500 }}>
+                                    ¥{item.value.toFixed(2)}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                            {validPayload.length > 8 && (
                               <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: '10px', marginTop: '4px' }}>
-                                还有 {validPayload.length - 6} 个物料...
+                                还有 {validPayload.length - 8} 项...
                               </div>
                             )}
                           </div>
@@ -1540,8 +1751,8 @@ export const AdminPanel: React.FC = () => {
                       }}
                     />
                   )}
-                  {/* 非拆分视图的默认 Tooltip */}
-                  {!showMaterialSplit && (
+                  {/* 非拆分、非多门店的默认 Tooltip */}
+                  {!showMaterialSplit && !isMultiRestaurant && (
                     <Tooltip
                       contentStyle={{
                         backgroundColor: 'rgba(30,35,40,0.95)',
@@ -1553,41 +1764,58 @@ export const AdminPanel: React.FC = () => {
                       formatter={(value: number) => [`¥${value.toFixed(2)}`, '单价']}
                     />
                   )}
-                  {showMaterialSplit && trendData.materialTrends.length > 0 ? (
+                  {/* 多门店对比模式或拆分视图 - 使用 lineConfigs */}
+                  {lineConfigs.length > 0 ? (
                     <>
                       <Legend
                         wrapperStyle={{ paddingTop: '10px', cursor: 'pointer' }}
-                        formatter={(value) => (
-                          <span
-                            style={{
-                              color: lockedMaterial === null || lockedMaterial === value
-                                ? 'rgba(255,255,255,0.9)'
-                                : 'rgba(255,255,255,0.3)',
-                              fontSize: '12px',
-                              fontWeight: lockedMaterial === value ? 600 : 400,
-                              transition: 'all 0.2s ease'
-                            }}
-                          >
-                            {value}
-                          </span>
-                        )}
+                        formatter={(value) => {
+                          const config = lineConfigs.find(c => c.dataKey === value);
+                          // 多门店物料拆分视图：只显示物料名
+                          const displayName = isMultiRestaurant && showMaterialSplit
+                            ? config?.materialName || value
+                            : value;
+                          // 判断是否高亮（锁定物料时，同物料的所有门店线都高亮）
+                          const isActive = lockedMaterial === null ||
+                            (config?.materialName === lockedMaterial) ||
+                            value === lockedMaterial;
+                          return (
+                            <span
+                              style={{
+                                color: isActive ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.3)',
+                                fontSize: '11px',
+                                fontWeight: isActive && lockedMaterial ? 600 : 400,
+                                transition: 'all 0.2s ease'
+                              }}
+                            >
+                              {displayName}
+                            </span>
+                          );
+                        }}
                         onClick={(e) => {
-                          const materialName = e.dataKey as string;
-                          // 点击同一个物料时取消锁定，否则锁定新物料
-                          setLockedMaterial(lockedMaterial === materialName ? null : materialName);
+                          const dataKey = e.dataKey as string;
+                          const config = lineConfigs.find(c => c.dataKey === dataKey);
+                          // 多门店物料拆分视图：点击锁定物料名（同物料不同门店一起高亮）
+                          const targetMaterial = config?.materialName || dataKey;
+                          setLockedMaterial(lockedMaterial === targetMaterial ? null : targetMaterial);
                         }}
                       />
-                      {trendData.materialTrends.map((material, index) => {
-                        const isActive = lockedMaterial === null || lockedMaterial === material.materialName;
+                      {lineConfigs.map((config) => {
+                        // 判断是否高亮
+                        const isActive = lockedMaterial === null ||
+                          config.materialName === lockedMaterial ||
+                          config.dataKey === lockedMaterial;
                         return (
                           <Line
-                            key={material.materialId}
+                            key={config.dataKey}
                             type="monotone"
-                            dataKey={material.materialName}
-                            stroke={lineColors[index % lineColors.length]}
-                            strokeWidth={lockedMaterial === material.materialName ? 3 : 2}
+                            dataKey={config.dataKey}
+                            name={config.dataKey}
+                            stroke={config.color}
+                            strokeDasharray={config.dashArray}
+                            strokeWidth={isActive && lockedMaterial ? 3 : 2}
                             strokeOpacity={isActive ? 1 : 0.15}
-                            dot={{ r: 3, fill: lineColors[index % lineColors.length], fillOpacity: isActive ? 1 : 0.15 }}
+                            dot={{ r: 3, fill: config.color, fillOpacity: isActive ? 1 : 0.15 }}
                             activeDot={isActive ? { r: 5, strokeWidth: 2, stroke: '#fff' } : { r: 0 }}
                             connectNulls={true}
                             style={{ transition: 'all 0.2s ease' }}
@@ -1614,6 +1842,9 @@ export const AdminPanel: React.FC = () => {
             <div className="mt-4 pt-4 border-t border-white/10">
               <div className="flex flex-wrap gap-4 text-xs text-white/60">
                 <span>分类: <span className="text-white">{trendData.categoryName}</span></span>
+                {isMultiRestaurant && hasRestaurantData && (
+                  <span>门店: <span className="text-white">{trendData.restaurantData.length}</span></span>
+                )}
                 <span>数据点: <span className="text-white">{trendData.aggregatedTrend.length}</span></span>
                 {trendData.aggregatedTrend.length > 0 && (
                   <>

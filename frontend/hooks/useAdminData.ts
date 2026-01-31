@@ -42,7 +42,8 @@ import {
   SupplierInput,
   MaterialInput,
   CategoryView,
-  CategoryPriceTrendResponse
+  CategoryPriceTrendResponse,
+  RestaurantTrendData
 } from '../services/adminService';
 import { RestaurantEntryStatus, AdminUserView } from '../types';
 
@@ -421,11 +422,15 @@ export function useCategoriesByBrand(brandId: number | undefined) {
 export function useCategoryPriceTrend(
   brandId: number | undefined,
   categoryId: number | undefined,
-  days: number = 30
+  days: number = 30,
+  restaurantIds?: string[]
 ) {
+  // 将数组转为字符串作为缓存 key
+  const restaurantKey = restaurantIds?.sort().join(',') || '';
+
   const { data, error, isLoading, mutate } = useSWR<CategoryPriceTrendResponse | null>(
-    brandId && categoryId ? ['admin/price-trend', brandId, categoryId, days] : null,
-    () => brandId && categoryId ? getCategoryPriceTrend(brandId, categoryId, days) : Promise.resolve(null),
+    brandId && categoryId ? ['admin/price-trend', brandId, categoryId, days, restaurantKey] : null,
+    () => brandId && categoryId ? getCategoryPriceTrend(brandId, categoryId, days, restaurantIds) : Promise.resolve(null),
     {
       ...defaultConfig,
       refreshInterval: CACHE_TTL.priceTrend,
