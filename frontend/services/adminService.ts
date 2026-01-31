@@ -1243,8 +1243,8 @@ export interface PriceRecordDetail {
   supplierName: string;
   restaurantName: string;
   createdAt: string;
-  receiptImage: string | null;  // 入库单图片
-  goodsImage: string | null;    // 货物图片
+  receiptImages: string[];  // 入库单图片数组
+  goodsImages: string[];    // 货物图片数组
 }
 
 /**
@@ -1318,6 +1318,17 @@ export async function getPriceRecordDetails(
       }
     }
 
+    // 解析 JSON 格式的图片 URL 数组
+    const parseImageUrls = (jsonStr: string | null): string[] => {
+      if (!jsonStr) return [];
+      try {
+        const parsed = JSON.parse(jsonStr);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    };
+
     return records.map(r => ({
       id: r.id,
       itemName: r.item_name || '',
@@ -1330,8 +1341,8 @@ export async function getPriceRecordDetails(
       supplierName: r.supplier_name || '',
       restaurantName: restaurantMap.get(r.restaurant_id) || '未知门店',
       createdAt: r.created_at || '',
-      receiptImage: r.receipt_image || null,
-      goodsImage: r.goods_image || null
+      receiptImages: parseImageUrls(r.receipt_image),
+      goodsImages: parseImageUrls(r.goods_image)
     }));
   } catch (error) {
     console.error('[AdminService] 获取价格记录详情失败:', error);

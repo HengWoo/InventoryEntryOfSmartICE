@@ -163,6 +163,9 @@ export const AdminPanel: React.FC = () => {
   } | null>(null);
   const [priceRecordDetails, setPriceRecordDetails] = useState<PriceRecordDetail[]>([]);
   const [priceDetailsLoading, setPriceDetailsLoading] = useState(false);
+  // v2.13: 图片预览和展开状态
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [expandedRecordIds, setExpandedRecordIds] = useState<Set<number>>(new Set());
 
   // v2.3: 搜索状态
   const [supplierSearch, setSupplierSearch] = useState('');
@@ -1316,10 +1319,23 @@ export const AdminPanel: React.FC = () => {
 
   // v2.8: 渲染价格趋势视图
   const renderPriceTrend = () => {
+    // 切换记录图片展开状态
+    const toggleRecordImages = (recordId: number) => {
+      setExpandedRecordIds(prev => {
+        const next = new Set(prev);
+        if (next.has(recordId)) {
+          next.delete(recordId);
+        } else {
+          next.add(recordId);
+        }
+        return next;
+      });
+    };
+
     // 价格记录行组件（支持图片折叠展示）
     const PriceRecordRow = ({ record }: { record: PriceRecordDetail }) => {
-      const [showImages, setShowImages] = useState(false);
-      const hasImages = record.receiptImage || record.goodsImage;
+      const showImages = expandedRecordIds.has(record.id);
+      const hasImages = record.receiptImages.length > 0 || record.goodsImages.length > 0;
 
       return (
         <>
@@ -1342,7 +1358,7 @@ export const AdminPanel: React.FC = () => {
             <td className="py-2 px-2 text-center">
               {hasImages ? (
                 <button
-                  onClick={() => setShowImages(!showImages)}
+                  onClick={() => toggleRecordImages(record.id)}
                   className="text-ios-blue hover:text-white transition-colors"
                 >
                   {showImages ? '收起 ▲' : '查看 ▼'}
@@ -1356,28 +1372,36 @@ export const AdminPanel: React.FC = () => {
             <tr className="bg-white/5">
               <td colSpan={9} className="py-3 px-4">
                 <div className="flex flex-wrap gap-4">
-                  {record.receiptImage && (
-                    <div className="flex flex-col gap-1">
-                      <span className="text-xs text-white/50">入库单</span>
-                      <a href={record.receiptImage} target="_blank" rel="noopener noreferrer">
-                        <img
-                          src={record.receiptImage}
-                          alt="入库单"
-                          className="h-24 w-auto rounded-lg border border-white/10 hover:border-ios-blue transition-colors cursor-pointer"
-                        />
-                      </a>
+                  {record.receiptImages.length > 0 && (
+                    <div className="flex flex-col gap-2">
+                      <span className="text-xs text-white/50">入库单 ({record.receiptImages.length})</span>
+                      <div className="flex flex-wrap gap-2">
+                        {record.receiptImages.map((url, idx) => (
+                          <img
+                            key={idx}
+                            src={url}
+                            alt={`入库单 ${idx + 1}`}
+                            className="h-20 w-auto rounded-lg border border-white/10 hover:border-ios-blue transition-colors cursor-pointer"
+                            onClick={() => setPreviewImage(url)}
+                          />
+                        ))}
+                      </div>
                     </div>
                   )}
-                  {record.goodsImage && (
-                    <div className="flex flex-col gap-1">
-                      <span className="text-xs text-white/50">货物照片</span>
-                      <a href={record.goodsImage} target="_blank" rel="noopener noreferrer">
-                        <img
-                          src={record.goodsImage}
-                          alt="货物照片"
-                          className="h-24 w-auto rounded-lg border border-white/10 hover:border-ios-blue transition-colors cursor-pointer"
-                        />
-                      </a>
+                  {record.goodsImages.length > 0 && (
+                    <div className="flex flex-col gap-2">
+                      <span className="text-xs text-white/50">货物照片 ({record.goodsImages.length})</span>
+                      <div className="flex flex-wrap gap-2">
+                        {record.goodsImages.map((url, idx) => (
+                          <img
+                            key={idx}
+                            src={url}
+                            alt={`货物照片 ${idx + 1}`}
+                            className="h-20 w-auto rounded-lg border border-white/10 hover:border-ios-blue transition-colors cursor-pointer"
+                            onClick={() => setPreviewImage(url)}
+                          />
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1973,7 +1997,6 @@ export const AdminPanel: React.FC = () => {
                                   strokeWidth={2}
                                   style={{ cursor: isClickable ? 'pointer' : 'default' }}
                                   onClick={isClickable ? () => {
-                                    console.log('[PriceTrend] 点击数据点:', { date: payload?.date, material: config.materialName });
                                     if (payload?.date) {
                                       handleDataPointClick(config.dataKey, payload.date);
                                     }
@@ -2080,6 +2103,28 @@ export const AdminPanel: React.FC = () => {
               </div>
             )}
           </>
+        )}
+
+        {/* 图片预览模态框 */}
+        {previewImage && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
+            onClick={() => setPreviewImage(null)}
+          >
+            <div className="relative max-w-[90vw] max-h-[90vh]">
+              <img
+                src={previewImage}
+                alt="预览"
+                className="max-w-full max-h-[90vh] rounded-lg"
+              />
+              <button
+                className="absolute top-2 right-2 w-8 h-8 flex items-center justify-center bg-black/50 rounded-full text-white hover:bg-black/70 transition-colors"
+                onClick={() => setPreviewImage(null)}
+              >
+                ✕
+              </button>
+            </div>
+          </div>
         )}
       </GlassCard>
     );
