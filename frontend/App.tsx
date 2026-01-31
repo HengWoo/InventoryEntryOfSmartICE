@@ -26,11 +26,10 @@ import { AdminPanel } from './components/AdminPanel';
 import { UpdateBanner } from './components/ui/UpdateBanner';
 import { UploadStatusBanner, UploadStatus } from './components/UploadStatusBanner';
 import { UploadProgressBanner } from './components/UploadProgressBanner';
-import { DailyLog, AppView } from './types';
+import { AppView } from './types';
 import { Icons } from './constants';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { PreloadDataProvider, usePreloadData } from './contexts/PreloadDataContext';
-import { getPurchaseLogs } from './services/dashboardService';
 import { startVersionCheck, stopVersionCheck } from './services/versionService';
 import { uploadQueueService, QueueItem } from './services/uploadQueueService';
 
@@ -42,8 +41,6 @@ const AppContent: React.FC = () => {
 
   const [currentView, setCurrentView] = useState<AppView>(AppView.DASHBOARD);
   const [hasRedirectedAdmin, setHasRedirectedAdmin] = useState(false);
-  const [logs, setLogs] = useState<DailyLog[]>([]);
-  const [logsLoading, setLogsLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   // 版本更新提示状态
   const [showUpdateBanner, setShowUpdateBanner] = useState(false);
@@ -69,27 +66,6 @@ const AppContent: React.FC = () => {
       window.removeEventListener('admin-change-password', handleAdminChangePassword);
     };
   }, []);
-
-  // 从数据库加载采购记录
-  useEffect(() => {
-    async function loadLogs() {
-      if (!isAuthenticated) return;
-
-      setLogsLoading(true);
-      try {
-        console.log(`[Dashboard] 当前用户 restaurant_id: ${user?.restaurant_id}`);
-        const data = await getPurchaseLogs(user?.restaurant_id || undefined, 30);
-        setLogs(data);
-        console.log(`[Dashboard] 加载了 ${data.length} 条采购记录 (餐厅过滤: ${user?.restaurant_id ? '是' : '否'})`);
-      } catch (err) {
-        console.error('[Dashboard] 加载采购记录失败:', err);
-      } finally {
-        setLogsLoading(false);
-      }
-    }
-
-    loadLogs();
-  }, [isAuthenticated, user?.restaurant_id]);
 
   // 版本检测：每 10 分钟检查一次新版本
   useEffect(() => {
@@ -178,23 +154,9 @@ const AppContent: React.FC = () => {
     return <LoginPage />;
   }
 
-  // 刷新采购记录
-  const refreshLogs = async () => {
-    setLogsLoading(true);
-    try {
-      const data = await getPurchaseLogs(user?.restaurant_id || undefined, 30);
-      setLogs(data);
-    } catch (err) {
-      console.error('[Dashboard] 刷新采购记录失败:', err);
-    } finally {
-      setLogsLoading(false);
-    }
-  };
-
-  const handleSaveEntry = async (logData: Omit<DailyLog, 'id'>) => {
+  const handleSaveEntry = async () => {
     // 数据已通过 EntryForm -> inventoryService 提交到数据库
-    // 这里刷新数据并返回仪表板
-    await refreshLogs();
+    // Dashboard 会自动加载最新数据
     setCurrentView(AppView.DASHBOARD);
   };
 
@@ -258,13 +220,7 @@ const AppContent: React.FC = () => {
 
           <main className={`flex-1 ${currentView === AppView.DASHBOARD ? 'overflow-hidden' : 'overflow-y-auto'} ${currentView === AppView.NEW_ENTRY || currentView === AppView.CHANGE_PASSWORD || currentView === AppView.HISTORY ? 'p-0' : 'p-4 md:p-8'} max-w-5xl mx-auto w-full`}>
               {currentView === AppView.DASHBOARD && (
-                logsLoading ? (
-                  <div className="h-full flex items-center justify-center">
-                    <div className="text-white/70">加载数据中...</div>
-                  </div>
-                ) : (
-                  <Dashboard logs={logs} restaurantId={user?.restaurant_id} />
-                )
+                <Dashboard restaurantId={user?.restaurant_id} userId={user?.id} />
               )}
               {currentView === AppView.NEW_ENTRY && <EntryForm onSave={handleSaveEntry} userName={CURRENT_USER_NAME} userNickname={CURRENT_USER_NICKNAME} onOpenMenu={() => setSidebarOpen(true)} />}
               {currentView === AppView.HISTORY && <QueueHistoryPage onBack={() => setCurrentView(AppView.DASHBOARD)} />}
