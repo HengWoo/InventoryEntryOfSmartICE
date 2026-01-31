@@ -1,5 +1,20 @@
 /**
  * 管理员面板主组件
+ * v2.13 - 价格详情表格优化：
+ *   - 数量和单位分开显示为两列
+ *   - 添加可折叠的图片展示（入库单、货物照片）
+ *   - 点击"查看"按钮展开/收起图片
+ *
+ * v2.12 - 价格趋势使用加权平均：
+ *   - 图表单价使用数量加权平均：sum(单价×数量) / sum(数量)
+ *   - 解决同一天同一物料多条记录时价格显示不准确的问题
+ *   - 移除调试日志
+ *
+ * v2.11 - 点击数据点显示录入详情：
+ *   - 点击图表上的数据点可查看该次录入的详细记录
+ *   - 显示门店、品名、数量、单价、金额、供应商、录入时间
+ *   - 支持多门店模式下查看特定门店的录入记录
+ *
  * v2.10 - 多门店价格趋势对比：
  *   - 支持多选门店进行价格趋势对比
  *   - 不同门店使用不同线型（实线、虚线、点线等）
@@ -104,7 +119,7 @@ import {
   useCategoriesByBrand,
   useCategoryPriceTrend
 } from '../hooks/useAdminData';
-import { SupplierInput, MaterialInput } from '../services/adminService';
+import { SupplierInput, MaterialInput, getPriceRecordDetails, PriceRecordDetail } from '../services/adminService';
 
 // 管理员面板子视图
 type AdminSubView = 'overview' | 'monitoring' | 'alerts' | 'reports' | 'price-trend' | 'users' | 'restaurants' | 'suppliers' | 'materials';
@@ -139,6 +154,15 @@ export const AdminPanel: React.FC = () => {
   const [showMaterialSplit, setShowMaterialSplit] = useState(false);
   // v2.9: 点击锁定高亮（null = 未锁定，string = 锁定的物料名称）
   const [lockedMaterial, setLockedMaterial] = useState<string | null>(null);
+  // v2.11: 点击数据点显示录入详情
+  const [selectedDataPoint, setSelectedDataPoint] = useState<{
+    date: string;
+    materialName: string;
+    restaurantId?: string;
+    restaurantName?: string;
+  } | null>(null);
+  const [priceRecordDetails, setPriceRecordDetails] = useState<PriceRecordDetail[]>([]);
+  const [priceDetailsLoading, setPriceDetailsLoading] = useState(false);
 
   // v2.3: 搜索状态
   const [supplierSearch, setSupplierSearch] = useState('');
@@ -1292,6 +1316,77 @@ export const AdminPanel: React.FC = () => {
 
   // v2.8: 渲染价格趋势视图
   const renderPriceTrend = () => {
+    // 价格记录行组件（支持图片折叠展示）
+    const PriceRecordRow = ({ record }: { record: PriceRecordDetail }) => {
+      const [showImages, setShowImages] = useState(false);
+      const hasImages = record.receiptImage || record.goodsImage;
+
+      return (
+        <>
+          <tr className="border-b border-white/5 hover:bg-white/5">
+            <td className="py-2 px-2 text-white/70">{record.restaurantName}</td>
+            <td className="py-2 px-2 text-white">{record.itemName || record.materialName}</td>
+            <td className="py-2 px-2 text-right text-white/70">{record.quantity}</td>
+            <td className="py-2 px-2 text-white/70">{record.unit || '-'}</td>
+            <td className="py-2 px-2 text-right text-white">¥{record.unitPrice.toFixed(2)}</td>
+            <td className="py-2 px-2 text-right text-ios-blue">¥{record.totalAmount.toFixed(2)}</td>
+            <td className="py-2 px-2 text-white/70 hidden md:table-cell">{record.supplierName || '-'}</td>
+            <td className="py-2 px-2 text-white/50 hidden md:table-cell">
+              {record.createdAt ? new Date(record.createdAt).toLocaleString('zh-CN', {
+                month: 'numeric',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+              }) : '-'}
+            </td>
+            <td className="py-2 px-2 text-center">
+              {hasImages ? (
+                <button
+                  onClick={() => setShowImages(!showImages)}
+                  className="text-ios-blue hover:text-white transition-colors"
+                >
+                  {showImages ? '收起 ▲' : '查看 ▼'}
+                </button>
+              ) : (
+                <span className="text-white/30">-</span>
+              )}
+            </td>
+          </tr>
+          {showImages && hasImages && (
+            <tr className="bg-white/5">
+              <td colSpan={9} className="py-3 px-4">
+                <div className="flex flex-wrap gap-4">
+                  {record.receiptImage && (
+                    <div className="flex flex-col gap-1">
+                      <span className="text-xs text-white/50">入库单</span>
+                      <a href={record.receiptImage} target="_blank" rel="noopener noreferrer">
+                        <img
+                          src={record.receiptImage}
+                          alt="入库单"
+                          className="h-24 w-auto rounded-lg border border-white/10 hover:border-ios-blue transition-colors cursor-pointer"
+                        />
+                      </a>
+                    </div>
+                  )}
+                  {record.goodsImage && (
+                    <div className="flex flex-col gap-1">
+                      <span className="text-xs text-white/50">货物照片</span>
+                      <a href={record.goodsImage} target="_blank" rel="noopener noreferrer">
+                        <img
+                          src={record.goodsImage}
+                          alt="货物照片"
+                          className="h-24 w-auto rounded-lg border border-white/10 hover:border-ios-blue transition-colors cursor-pointer"
+                        />
+                      </a>
+                    </div>
+                  )}
+                </div>
+              </td>
+            </tr>
+          )}
+        </>
+      );
+    };
     // 折线图颜色配置（12种颜色）
     const lineColors = [
       '#5BA3C0', '#6B9E8A', '#E8A54C', '#E85A4F', '#9370DB', '#4ECDC4',
@@ -1315,6 +1410,42 @@ export const AdminPanel: React.FC = () => {
     const formatChartDate = (dateStr: string) => {
       const date = new Date(dateStr);
       return `${date.getMonth() + 1}/${date.getDate()}`;
+    };
+
+    // v2.11: 点击数据点获取详情
+    const handleDataPointClick = async (dataKey: string, date: string) => {
+      // 解析 dataKey 获取门店和物料信息
+      const config = lineConfigs.find(c => c.dataKey === dataKey);
+
+      const materialName = config?.materialName || dataKey;
+
+      // 如果是多门店模式，从 dataKey 中解析门店信息
+      let restaurantId: string | undefined;
+      let restaurantName: string | undefined;
+
+      if (isMultiRestaurant && config?.restaurantName) {
+        restaurantName = config.restaurantName;
+        // 从 trendData 中找到对应的门店ID
+        const restData = trendData?.restaurantData.find(r => r.restaurantName === restaurantName);
+        restaurantId = restData?.restaurantId;
+      } else if (priceTrendRestaurantIds.length === 1) {
+        restaurantId = priceTrendRestaurantIds[0];
+        const rest = restaurants.find(r => r.id === restaurantId);
+        restaurantName = rest?.restaurant_name;
+      }
+
+      setSelectedDataPoint({ date, materialName, restaurantId, restaurantName });
+      setPriceDetailsLoading(true);
+
+      try {
+        const details = await getPriceRecordDetails(date, materialName, restaurantId);
+        setPriceRecordDetails(details);
+      } catch (error) {
+        console.error('获取价格详情失败:', error);
+        setPriceRecordDetails([]);
+      } finally {
+        setPriceDetailsLoading(false);
+      }
     };
 
     // 门店线型配置（最多支持6家门店）
@@ -1570,12 +1701,17 @@ export const AdminPanel: React.FC = () => {
                 <div className="flex items-center justify-between">
                   <div className="text-xs text-white/40">
                     {isMultiRestaurant && !showMaterialSplit && '不同线型代表不同门店'}
-                    {showMaterialSplit && !lockedMaterial && '点击图例可锁定物料'}
+                    {showMaterialSplit && !lockedMaterial && '点击图例锁定物料，再点击图表查看录入详情'}
                     {showMaterialSplit && lockedMaterial && (
                       <span className="text-ios-blue">
                         已锁定: {lockedMaterial}
+                        <span className="text-white/40 ml-2">点击图表查看详情</span>
                         <button
-                          onClick={() => setLockedMaterial(null)}
+                          onClick={() => {
+                            setLockedMaterial(null);
+                            setSelectedDataPoint(null);
+                            setPriceRecordDetails([]);
+                          }}
                           className="ml-2 text-white/50 hover:text-white"
                         >
                           ✕ 取消
@@ -1588,6 +1724,8 @@ export const AdminPanel: React.FC = () => {
                       onClick={() => {
                         setShowMaterialSplit(!showMaterialSplit);
                         setLockedMaterial(null);
+                        setSelectedDataPoint(null);
+                        setPriceRecordDetails([]);
                       }}
                       className="text-xs text-ios-blue hover:text-ios-blue/80 transition-colors"
                     >
@@ -1622,7 +1760,10 @@ export const AdminPanel: React.FC = () => {
             {/* 折线图 */}
             <div className="h-[320px] md:h-[400px] min-h-[320px]">
               <ResponsiveContainer width="100%" height="100%" minWidth={200} minHeight={200}>
-                <LineChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                <LineChart
+                  data={chartData}
+                  margin={{ top: 5, right: 10, left: 0, bottom: 5 }}
+                >
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
                   <XAxis
                     dataKey="date"
@@ -1816,7 +1957,30 @@ export const AdminPanel: React.FC = () => {
                             strokeWidth={isActive && lockedMaterial ? 3 : 2}
                             strokeOpacity={isActive ? 1 : 0.15}
                             dot={{ r: 3, fill: config.color, fillOpacity: isActive ? 1 : 0.15 }}
-                            activeDot={isActive ? { r: 5, strokeWidth: 2, stroke: '#fff' } : { r: 0 }}
+                            activeDot={isActive ? (props: { cx?: number; cy?: number; payload?: { date?: string } }) => {
+                              const { cx, cy, payload } = props;
+                              if (cx === undefined || cy === undefined) return null;
+
+                              const isClickable = showMaterialSplit && lockedMaterial && config.materialName === lockedMaterial;
+
+                              return (
+                                <circle
+                                  cx={cx}
+                                  cy={cy}
+                                  r={6}
+                                  fill={config.color}
+                                  stroke="#fff"
+                                  strokeWidth={2}
+                                  style={{ cursor: isClickable ? 'pointer' : 'default' }}
+                                  onClick={isClickable ? () => {
+                                    console.log('[PriceTrend] 点击数据点:', { date: payload?.date, material: config.materialName });
+                                    if (payload?.date) {
+                                      handleDataPointClick(config.dataKey, payload.date);
+                                    }
+                                  } : undefined}
+                                />
+                              );
+                            } : { r: 0 }}
                             connectNulls={true}
                             style={{ transition: 'all 0.2s ease' }}
                           />
@@ -1858,6 +2022,63 @@ export const AdminPanel: React.FC = () => {
                 )}
               </div>
             </div>
+
+            {/* v2.11: 点击数据点显示录入详情 */}
+            {selectedDataPoint && (
+              <div className="mt-4 pt-4 border-t border-white/10">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-sm font-medium text-white">
+                    录入详情 - {selectedDataPoint.materialName}
+                    <span className="text-white/50 ml-2">
+                      {selectedDataPoint.date}
+                      {selectedDataPoint.restaurantName && ` · ${selectedDataPoint.restaurantName}`}
+                    </span>
+                  </h4>
+                  <button
+                    onClick={() => {
+                      setSelectedDataPoint(null);
+                      setPriceRecordDetails([]);
+                    }}
+                    className="text-xs text-white/50 hover:text-white"
+                  >
+                    ✕ 关闭
+                  </button>
+                </div>
+
+                {priceDetailsLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                  </div>
+                ) : priceRecordDetails.length === 0 ? (
+                  <div className="text-center py-8 text-white/40 text-sm">
+                    暂无录入记录
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-white/50 border-b border-white/10">
+                          <th className="text-left py-2 px-2 font-medium">门店</th>
+                          <th className="text-left py-2 px-2 font-medium">品名</th>
+                          <th className="text-right py-2 px-2 font-medium">数量</th>
+                          <th className="text-left py-2 px-2 font-medium">单位</th>
+                          <th className="text-right py-2 px-2 font-medium">单价</th>
+                          <th className="text-right py-2 px-2 font-medium">金额</th>
+                          <th className="text-left py-2 px-2 font-medium hidden md:table-cell">供应商</th>
+                          <th className="text-left py-2 px-2 font-medium hidden md:table-cell">录入时间</th>
+                          <th className="text-center py-2 px-2 font-medium">图片</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {priceRecordDetails.map((record: PriceRecordDetail) => (
+                          <PriceRecordRow key={record.id} record={record} />
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
           </>
         )}
       </GlassCard>

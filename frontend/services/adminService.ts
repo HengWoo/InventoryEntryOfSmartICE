@@ -1,5 +1,10 @@
 /**
  * 管理员面板服务
+ * v1.7 - 价格趋势使用加权平均：
+ *   - getCategoryPriceTrend 使用数量加权平均计算单价
+ *   - 公式：sum(unit_price * quantity) / sum(quantity)
+ *   - 解决同一天同一物料多条记录时的价格显示问题
+ *
  * v1.6 - 价格趋势按门店过滤：
  *   - getCategoryPriceTrend 添加 restaurantId 参数
  *   - 支持按单个门店过滤价格数据
@@ -1048,10 +1053,10 @@ export async function getCategoryPriceTrend(
       }
     }
 
-    // 获取价格记录（包含 restaurant_id 用于分组）
+    // 获取价格记录（包含 restaurant_id 用于分组，quantity 用于加权平均）
     let query = supabase
       .from('ims_material_price')
-      .select('material_id, unit_price, price_date, restaurant_id')
+      .select('material_id, unit_price, price_date, restaurant_id, quantity')
       .in('material_id', materialIds)
       .gte('price_date', startDate)
       .not('unit_price', 'is', null)
@@ -1076,39 +1081,44 @@ export async function getCategoryPriceTrend(
     }
 
     // 类型断言
-    type PriceRecord = { material_id: number; unit_price: number; price_date: string; restaurant_id: string };
+    type PriceRecord = { material_id: number; unit_price: number; price_date: string; restaurant_id: string; quantity: number | null };
     const records = priceRecords as unknown as PriceRecord[];
 
-    // 整体聚合（所有选中门店合计）
-    const dateAggregation: Record<string, { sum: number; count: number }> = {};
-    const materialDateAggregation: Record<number, Record<string, { sum: number; count: number }>> = {};
+    // 整体聚合（所有选中门店合计）- 使用加权平均
+    // weightedSum = sum(unit_price * quantity), totalQty = sum(quantity)
+    // avgPrice = weightedSum / totalQty
+    const dateAggregation: Record<string, { weightedSum: number; totalQty: number }> = {};
+    const materialDateAggregation: Record<number, Record<string, { weightedSum: number; totalQty: number }>> = {};
 
     // 按门店分组聚合
     const restaurantAggregation: Record<string, {
-      dateAgg: Record<string, { sum: number; count: number }>;
-      materialAgg: Record<number, Record<string, { sum: number; count: number }>>;
+      dateAgg: Record<string, { weightedSum: number; totalQty: number }>;
+      materialAgg: Record<number, Record<string, { weightedSum: number; totalQty: number }>>;
     }> = {};
 
     records.forEach((record) => {
-      const { price_date: date, unit_price: price, material_id: materialId, restaurant_id: restId } = record;
+      const { price_date: date, unit_price: price, material_id: materialId, restaurant_id: restId, quantity } = record;
       if (!date || !price || !materialId) return;
+
+      // 数量默认为1（如果没有记录数量）
+      const qty = quantity || 1;
 
       // 整体聚合
       if (!dateAggregation[date]) {
-        dateAggregation[date] = { sum: 0, count: 0 };
+        dateAggregation[date] = { weightedSum: 0, totalQty: 0 };
       }
-      dateAggregation[date].sum += price;
-      dateAggregation[date].count += 1;
+      dateAggregation[date].weightedSum += price * qty;
+      dateAggregation[date].totalQty += qty;
 
       // 整体物料聚合
       if (!materialDateAggregation[materialId]) {
         materialDateAggregation[materialId] = {};
       }
       if (!materialDateAggregation[materialId][date]) {
-        materialDateAggregation[materialId][date] = { sum: 0, count: 0 };
+        materialDateAggregation[materialId][date] = { weightedSum: 0, totalQty: 0 };
       }
-      materialDateAggregation[materialId][date].sum += price;
-      materialDateAggregation[materialId][date].count += 1;
+      materialDateAggregation[materialId][date].weightedSum += price * qty;
+      materialDateAggregation[materialId][date].totalQty += qty;
 
       // 按门店分组聚合
       if (restId) {
@@ -1117,28 +1127,28 @@ export async function getCategoryPriceTrend(
         }
         // 门店整体
         if (!restaurantAggregation[restId].dateAgg[date]) {
-          restaurantAggregation[restId].dateAgg[date] = { sum: 0, count: 0 };
+          restaurantAggregation[restId].dateAgg[date] = { weightedSum: 0, totalQty: 0 };
         }
-        restaurantAggregation[restId].dateAgg[date].sum += price;
-        restaurantAggregation[restId].dateAgg[date].count += 1;
+        restaurantAggregation[restId].dateAgg[date].weightedSum += price * qty;
+        restaurantAggregation[restId].dateAgg[date].totalQty += qty;
 
         // 门店物料
         if (!restaurantAggregation[restId].materialAgg[materialId]) {
           restaurantAggregation[restId].materialAgg[materialId] = {};
         }
         if (!restaurantAggregation[restId].materialAgg[materialId][date]) {
-          restaurantAggregation[restId].materialAgg[materialId][date] = { sum: 0, count: 0 };
+          restaurantAggregation[restId].materialAgg[materialId][date] = { weightedSum: 0, totalQty: 0 };
         }
-        restaurantAggregation[restId].materialAgg[materialId][date].sum += price;
-        restaurantAggregation[restId].materialAgg[materialId][date].count += 1;
+        restaurantAggregation[restId].materialAgg[materialId][date].weightedSum += price * qty;
+        restaurantAggregation[restId].materialAgg[materialId][date].totalQty += qty;
       }
     });
 
-    // 生成整体趋势数据
+    // 生成整体趋势数据（加权平均）
     const aggregatedTrend: PriceTrendDataPoint[] = Object.entries(dateAggregation)
-      .map(([date, { sum, count }]) => ({
+      .map(([date, { weightedSum, totalQty }]) => ({
         date,
-        avgPrice: Math.round((sum / count) * 100) / 100
+        avgPrice: Math.round((weightedSum / totalQty) * 100) / 100
       }))
       .sort((a, b) => a.date.localeCompare(b.date));
 
@@ -1156,9 +1166,9 @@ export async function getCategoryPriceTrend(
     sortedMaterialIds.forEach((materialId) => {
       const materialData = materialDateAggregation[materialId];
       const data: PriceTrendDataPoint[] = Object.entries(materialData)
-        .map(([date, { sum, count }]) => ({
+        .map(([date, { weightedSum, totalQty }]) => ({
           date,
-          avgPrice: Math.round((sum / count) * 100) / 100
+          avgPrice: Math.round((weightedSum / totalQty) * 100) / 100
         }))
         .sort((a, b) => a.date.localeCompare(b.date));
 
@@ -1172,22 +1182,22 @@ export async function getCategoryPriceTrend(
     // 生成每个门店的独立数据
     const restaurantData: RestaurantTrendData[] = [];
     Object.entries(restaurantAggregation).forEach(([restId, { dateAgg, materialAgg }]) => {
-      // 门店整体趋势
+      // 门店整体趋势（加权平均）
       const restAggTrend: PriceTrendDataPoint[] = Object.entries(dateAgg)
-        .map(([date, { sum, count }]) => ({
+        .map(([date, { weightedSum, totalQty }]) => ({
           date,
-          avgPrice: Math.round((sum / count) * 100) / 100
+          avgPrice: Math.round((weightedSum / totalQty) * 100) / 100
         }))
         .sort((a, b) => a.date.localeCompare(b.date));
 
-      // 门店物料趋势
+      // 门店物料趋势（加权平均）
       const restMatTrends: MaterialPriceTrend[] = [];
       sortedMaterialIds.forEach((materialId) => {
         if (materialAgg[materialId]) {
           const data: PriceTrendDataPoint[] = Object.entries(materialAgg[materialId])
-            .map(([date, { sum, count }]) => ({
+            .map(([date, { weightedSum, totalQty }]) => ({
               date,
-              avgPrice: Math.round((sum / count) * 100) / 100
+              avgPrice: Math.round((weightedSum / totalQty) * 100) / 100
             }))
             .sort((a, b) => a.date.localeCompare(b.date));
 
@@ -1217,5 +1227,114 @@ export async function getCategoryPriceTrend(
   } catch (error) {
     console.error('[AdminService] 获取价格趋势失败:', error);
     return null;
+  }
+}
+
+// 价格记录详情
+export interface PriceRecordDetail {
+  id: number;
+  itemName: string;
+  materialName: string;
+  quantity: number;
+  unit: string;
+  unitPrice: number;
+  totalAmount: number;
+  priceDate: string;
+  supplierName: string;
+  restaurantName: string;
+  createdAt: string;
+  receiptImage: string | null;  // 入库单图片
+  goodsImage: string | null;    // 货物图片
+}
+
+/**
+ * 获取指定日期、物料、门店的价格记录详情
+ */
+export async function getPriceRecordDetails(
+  date: string,
+  materialName: string,
+  restaurantId?: string
+): Promise<PriceRecordDetail[]> {
+  try {
+    // 先根据物料名称获取物料ID
+    const { data: materials } = await supabase
+      .from('ims_material')
+      .select('id, name')
+      .eq('name', materialName)
+      .limit(1);
+
+    const materialId = materials?.[0]?.id;
+
+    // 构建查询
+    let query = supabase
+      .from('ims_material_price')
+      .select(`
+        id,
+        item_name,
+        quantity,
+        unit,
+        unit_price,
+        total_amount,
+        price_date,
+        supplier_name,
+        created_at,
+        restaurant_id,
+        material_id,
+        receipt_image,
+        goods_image
+      `)
+      .eq('price_date', date);
+
+    // 如果找到了物料ID，按物料ID过滤；否则按 item_name 模糊匹配
+    if (materialId) {
+      query = query.eq('material_id', materialId);
+    } else {
+      // 尝试模糊匹配 item_name
+      query = query.ilike('item_name', `%${materialName}%`);
+    }
+
+    // 如果指定了门店，按门店过滤
+    if (restaurantId) {
+      query = query.eq('restaurant_id', restaurantId);
+    }
+
+    const { data: records, error } = await query.order('created_at', { ascending: false });
+
+    if (error || !records) {
+      console.error('[AdminService] 获取价格记录详情失败:', error);
+      return [];
+    }
+
+    // 获取门店名称
+    const restaurantIds = [...new Set(records.map(r => r.restaurant_id).filter(Boolean))];
+    const restaurantMap = new Map<string, string>();
+    if (restaurantIds.length > 0) {
+      const { data: restaurants } = await supabase
+        .from('master_restaurant')
+        .select('id, restaurant_name')
+        .in('id', restaurantIds);
+      if (restaurants) {
+        restaurants.forEach(r => restaurantMap.set(r.id, r.restaurant_name));
+      }
+    }
+
+    return records.map(r => ({
+      id: r.id,
+      itemName: r.item_name || '',
+      materialName: materialName,
+      quantity: r.quantity || 0,
+      unit: r.unit || '',
+      unitPrice: r.unit_price || 0,
+      totalAmount: r.total_amount || 0,
+      priceDate: r.price_date || '',
+      supplierName: r.supplier_name || '',
+      restaurantName: restaurantMap.get(r.restaurant_id) || '未知门店',
+      createdAt: r.created_at || '',
+      receiptImage: r.receipt_image || null,
+      goodsImage: r.goods_image || null
+    }));
+  } catch (error) {
+    console.error('[AdminService] 获取价格记录详情失败:', error);
+    return [];
   }
 }
