@@ -1,5 +1,6 @@
 /**
  * Supabase 数据库服务
+ * v5.2 - 新增 voice_duration_seconds 字段，追踪语音录入时长
  * v5.1 - 修复 406 错误：.single() → .maybeSingle()，避免 0 行时抛出异常
  * v5.0 - 迁移到 master tables: ims_brand → master_brand, store_id → restaurant_id
  * v4.4 - 表名规范化：移除 ref 前缀（ims_ref_unit → ims_unit）
@@ -7,6 +8,7 @@
  * v4.0 - 供应商表重命名 ims_ref_supplier → ims_supplier
  *
  * 变更历史：
+ * - v5.2: 新增 voice_duration_seconds 字段，追踪语音录入总时长
  * - v5.1: 修复 406 错误：createOrGetSupplier/matchSupplier/matchUnit 使用 maybeSingle()
  * - v5.0: 迁移到 master tables，使用 master_brand, restaurant_id 替代 store_id
  * - v4.4: 单位表重命名 ims_ref_unit → ims_unit
@@ -78,6 +80,7 @@ export interface Category {
 
 // v5.0 - store_id → restaurant_id (UUID)
 // v5.1 - 添加 is_wastage 字段，支持损耗记录
+// v5.2 - 添加 voice_duration_seconds 字段，追踪语音录入时长
 // v3.7 - 添加 use_ai_photo 和 use_ai_voice 字段，追踪 AI 功能使用情况
 // v3.6 - 添加 specification 字段，与 notes 分开存储
 export interface StorePurchasePrice {
@@ -100,6 +103,7 @@ export interface StorePurchasePrice {
   status?: string;            // pending/approved/rejected
   use_ai_photo?: number;      // v3.7: AI 识图功能使用次数
   use_ai_voice?: number;      // v3.7: 语音识别功能使用次数
+  voice_duration_seconds?: number; // v5.2: 语音录入总时长（秒）
   is_wastage?: boolean;       // v5.1: 是否为损耗记录
 }
 
@@ -480,6 +484,7 @@ export async function createPurchasePrice(data: StorePurchasePrice): Promise<Sto
 
 /**
  * 批量创建采购价格记录
+ * v5.2 - 支持 voice_duration_seconds 字段（语音录入时长）
  * v5.1 - 支持 is_wastage 字段（损耗记录）
  * v5.0 - 使用 restaurant_id 替代 store_id
  * v3.7 - 支持 use_ai_photo/use_ai_voice 字段
@@ -506,6 +511,7 @@ export async function createPurchasePrices(records: StorePurchasePrice[]): Promi
       status: r.status || 'pending',
       use_ai_photo: r.use_ai_photo || 0,
       use_ai_voice: r.use_ai_voice || 0,
+      voice_duration_seconds: r.voice_duration_seconds || 0,
       is_wastage: r.is_wastage || false,
     })))
     .select();

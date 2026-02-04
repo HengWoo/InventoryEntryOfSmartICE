@@ -1,4 +1,5 @@
 // EntryForm - 采购录入表单
+// v7.3 - 新增语音录入时长追踪：记录每次录音的时长，提交时保存到数据库
 // v7.2 - 修复移动端纠偏提示不显示：检查物料数据是否加载完成，避免 products 为空时跳过纠偏
 // v7.1 - 修复损耗模式确认页面显示"未知供应商"问题：SummaryScreen 传入 supplier 时判断 isWastage
 // v7.0 - 损耗模式：添加 Toggle Switch 切换入库/损耗模式，损耗模式隐藏供应商/AI识别/价格字段
@@ -1389,6 +1390,9 @@ export const EntryForm: React.FC<EntryFormProps> = ({ onSave, userName, userNick
   // v4.6: AI 使用统计
   const [useAiPhotoCount, setUseAiPhotoCount] = useState(0);  // AI 识图使用次数
   const [useAiVoiceCount, setUseAiVoiceCount] = useState(0);  // 语音识别使用次数
+  // v7.3: 语音录入时长追踪
+  const [voiceDurationSeconds, setVoiceDurationSeconds] = useState(0);  // 语音录入总时长（秒）
+  const voiceStartTimeRef = useRef<number | null>(null);  // 录音开始时间戳
 
   // v6.1: 物料名称实时验证状态（记录每个物品的验证状态）
   const [materialValidationErrors, setMaterialValidationErrors] = useState<Record<number, string>>({});
@@ -1532,12 +1536,28 @@ export const EntryForm: React.FC<EntryFormProps> = ({ onSave, userName, userNick
   }, []);
 
   // 初始化语音服务回调
+  // v7.3: 添加录音时长追踪
   // v1.8: 识别完成后仅显示文本，不自动填充，需点击发送按钮
   useEffect(() => {
     voiceEntryService.setCallbacks({
       onStatusChange: (status, message) => {
         setVoiceStatus(status);
         setVoiceMessage(message || '');
+
+        // v7.3: 录音开始时记录时间戳
+        if (status === 'recording') {
+          voiceStartTimeRef.current = Date.now();
+        }
+        // v7.3: 录音结束时计算时长并累加
+        if ((status === 'processing' || status === 'idle' || status === 'completed') && voiceStartTimeRef.current) {
+          const durationMs = Date.now() - voiceStartTimeRef.current;
+          const durationSec = Math.round(durationMs / 1000);
+          if (durationSec > 0) {
+            setVoiceDurationSeconds(prev => prev + durationSec);
+            console.log(`[语音录入] 本次录音时长: ${durationSec}秒`);
+          }
+          voiceStartTimeRef.current = null;
+        }
 
         // v3.9: 显示转录面板（包括 preparing 状态）
         if (status === 'recording' || status === 'processing' || status === 'preparing') {
@@ -2268,12 +2288,13 @@ ${productList}
       isWastage: isWastage,  // v5.2: 损耗标记
     };
 
-    // v4.6: 构建 AI 使用统计
+    // v7.3: 构建 AI 使用统计（包含语音时长）
     const aiUsage = {
       useAiPhoto: useAiPhotoCount,
       useAiVoice: useAiVoiceCount,
+      voiceDurationSeconds: voiceDurationSeconds,
     };
-    console.log(`[提交] AI 使用统计: 识图=${useAiPhotoCount}次, 语音=${useAiVoiceCount}次`);
+    console.log(`[提交] AI 使用统计: 识图=${useAiPhotoCount}次, 语音=${useAiVoiceCount}次, 语音时长=${voiceDurationSeconds}秒`);
 
     // 添加到队列
     // v5.2: 传递 brand_id 用于新建供应商时绑定品牌
@@ -2320,6 +2341,7 @@ ${productList}
                 setSubmitProgress(null);
                 setUseAiPhotoCount(0);
                 setUseAiVoiceCount(0);
+                setVoiceDurationSeconds(0);  // v7.3: 重置语音时长
               }, 100);
               return 0;
             }

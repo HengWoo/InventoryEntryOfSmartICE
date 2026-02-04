@@ -1,10 +1,12 @@
 /**
  * 入库数据提交服务
+ * v4.3 - 新增 voiceDurationSeconds 字段，追踪语音录入时长
  * v4.2 - 直接使用 brand_id 外键，移除 brandCodeToId 映射
  * v4.0 - 新建供应商时绑定品牌ID
  * v3.9 - 产品匹配支持别名（如西红柿→番茄），使用 exactMatchProduct RPC
  *
  * 变更历史：
+ * - v4.3: 新增 voiceDurationSeconds 字段，追踪语音录入总时长
  * - v4.2: 移除 brandCodeToId 依赖，直接使用 brand_id 数字参数
  * - v4.0: 新建供应商绑定品牌，添加 brandId 参数
  * - v3.9: 产品匹配改用 exactMatchProduct，支持别名匹配
@@ -62,11 +64,13 @@ export type OnProgressCallback = (progress: SubmitProgress) => void;
 
 /**
  * AI 使用统计参数
+ * v4.3 - 新增 voiceDurationSeconds
  * v3.7 - 新增
  */
 export interface AiUsageStats {
   useAiPhoto?: number;   // AI 识图功能使用次数
   useAiVoice?: number;   // 语音识别功能使用次数
+  voiceDurationSeconds?: number; // 语音录入总时长（秒）
 }
 
 /**
@@ -283,6 +287,7 @@ export async function submitProcurement(
       status: 'pending',
       use_ai_photo: aiUsage?.useAiPhoto || 0,          // v3.7: AI 识图使用次数
       use_ai_voice: aiUsage?.useAiVoice || 0,          // v3.7: 语音识别使用次数
+      voice_duration_seconds: aiUsage?.voiceDurationSeconds || 0, // v4.3: 语音录入时长
       is_wastage: isWastage,                           // v5.1: 损耗标记
     };
 
