@@ -688,14 +688,24 @@ export async function getAdminMaterialList(brandId?: number): Promise<AdminMater
 }
 
 /**
- * 获取分类列表
+ * 获取分类列表（按品牌过滤）
+ * v2.0 - 添加品牌过滤，避免不同品牌的同名分类重复显示
+ * @param brandId 可选品牌ID，传入时返回该品牌 + 通用(brand_id=3或NULL) 的分类
  */
-export async function getCategoryList(): Promise<{ id: number; name: string }[]> {
+export async function getCategoryList(brandId?: number): Promise<{ id: number; name: string }[]> {
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from('ims_category')
       .select('id, name')
-      .order('name');
+      .eq('is_active', true)
+      .eq('category_type', 'material');
+
+    // 品牌过滤：加载本品牌 + 通用(NULL或id=3) 分类
+    if (brandId) {
+      query = query.or(`brand_id.eq.${brandId},brand_id.eq.3,brand_id.is.null`);
+    }
+
+    const { data, error } = await query.order('name');
 
     if (error) return [];
     return data || [];

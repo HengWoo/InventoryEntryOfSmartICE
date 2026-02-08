@@ -92,12 +92,13 @@ export function useBrandList() {
 }
 
 /**
- * 分类列表 Hook
+ * 分类列表 Hook（按品牌过滤）
+ * v2.0 - 添加品牌过滤参数
  */
-export function useCategoryList() {
+export function useCategoryList(brandId?: number) {
   const { data, error, isLoading } = useSWR<{ id: number; name: string }[]>(
-    'admin/categories',
-    getCategoryList,
+    brandId ? ['admin/categories', brandId] : 'admin/categories',
+    () => getCategoryList(brandId),
     {
       ...defaultConfig,
       refreshInterval: CACHE_TTL.categories,

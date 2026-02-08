@@ -196,7 +196,7 @@ export const AdminPanel: React.FC = () => {
   const { materials, isLoading: materialsLoading, addMaterial, editMaterial, removeMaterial } = useAdminMaterials(selectedBrandId);
   const { report: crossReport, isLoading: reportLoading } = useCrossRestaurantReport(reportDays);
   const { brands } = useBrandList();
-  const { categories } = useCategoryList();
+  const { categories } = useCategoryList(selectedBrandId);
   const { units } = useUnitList();
   const { details: restaurantDetails, isLoading: detailsLoading } = useRestaurantDetails(expandedRestaurantId, reportDays);
   // v2.8: 价格趋势数据
