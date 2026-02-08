@@ -1,5 +1,10 @@
 /**
  * 管理员面板主组件
+ * v2.15 - 集成 AI 数据助手悬浮聊天组件：
+ *   - 右下角悬浮气泡，点击展开 AI 聊天面板
+ *   - 通过 Gemini + Function Calling 查询和修改 ims_* 数据库
+ *   - 写操作（INSERT/UPDATE/DELETE）需二次确认
+ *
  * v2.14 - 异常告警展开录入详情 + 图片预加载：
  *   - 点击异常告警行展开该物料当天的录入详情（数量、单价、金额、供应商、图片）
  *   - 获取详情数据后自动预加载图片到浏览器缓存
@@ -97,6 +102,7 @@
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { GlassCard, GlassSelect } from './ui';
+import { FloatingAIChat } from './FloatingAIChat';
 import { Icons } from '../constants';
 import { useAuth } from '../contexts/AuthContext';
 import {
@@ -2810,6 +2816,9 @@ export const AdminPanel: React.FC = () => {
 
       {/* 模态框 */}
       {renderModal()}
+
+      {/* AI 助手悬浮聊天 */}
+      <FloatingAIChat />
     </div>
   );
 };
