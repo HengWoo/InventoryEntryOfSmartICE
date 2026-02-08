@@ -1,51 +1,36 @@
 /**
- * FloatingAIChat v1.0
+ * FloatingAIChat v1.1
  * 管理员 AI 助手悬浮聊天组件 - Storm Glass 毛玻璃风格
  *
- * 功能：
- * - 悬浮气泡按钮，点击展开聊天面板
- * - 多轮对话，支持 tool calling 状态展示
- * - 写操作二次确认 UI（确认/取消按钮）
- * - 自动滚动到最新消息
+ * v1.1 - AI 输出 HTML 格式，前端安全渲染，表格/代码块样式优化
+ * v1.0 - 初始版本
  */
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { sendChatMessage, ChatMessage, PendingAction } from '../services/aiChatService';
 
-// 简单 Markdown 渲染：代码块、加粗、换行
-function renderMarkdown(text: string): React.ReactNode[] {
-  const parts: React.ReactNode[] = [];
-  // 按代码块分割
-  const segments = text.split(/(```[\s\S]*?```)/g);
+// 安全 HTML 标签白名单
+const ALLOWED_TAGS = new Set([
+  'table', 'thead', 'tbody', 'tr', 'th', 'td',
+  'strong', 'b', 'em', 'i', 'code', 'pre', 'br', 'p',
+  'ul', 'ol', 'li', 'h3', 'h4', 'span', 'div', 'hr',
+]);
 
-  segments.forEach((seg, i) => {
-    if (seg.startsWith('```')) {
-      // 代码块
-      const code = seg.replace(/^```\w*\n?/, '').replace(/\n?```$/, '');
-      parts.push(
-        <pre key={i} className="my-2 p-3 rounded-xl text-xs overflow-x-auto font-mono"
-          style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.08)' }}>
-          <code>{code}</code>
-        </pre>
-      );
-    } else {
-      // 普通文本：处理加粗和换行
-      const lines = seg.split('\n');
-      lines.forEach((line, j) => {
-        if (j > 0) parts.push(<br key={`br-${i}-${j}`} />);
-        // 加粗
-        const boldParts = line.split(/(\*\*[^*]+\*\*)/g);
-        boldParts.forEach((bp, k) => {
-          if (bp.startsWith('**') && bp.endsWith('**')) {
-            parts.push(<strong key={`b-${i}-${j}-${k}`}>{bp.slice(2, -2)}</strong>);
-          } else {
-            parts.push(<span key={`t-${i}-${j}-${k}`}>{bp}</span>);
-          }
-        });
-      });
-    }
-  });
-  return parts;
+// 简单 HTML 清理：只保留白名单标签，移除事件属性
+function sanitizeHtml(html: string): string {
+  return html
+    // 移除 script/style 标签及内容
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    // 移除事件属性 (on*)
+    .replace(/\s+on\w+\s*=\s*["'][^"']*["']/gi, '')
+    .replace(/\s+on\w+\s*=\s*\S+/gi, '')
+    // 移除 javascript: 协议
+    .replace(/javascript\s*:/gi, '')
+    // 移除不在白名单的标签（保留内容）
+    .replace(/<\/?([a-z][a-z0-9]*)\b[^>]*>/gi, (match, tag) => {
+      return ALLOWED_TAGS.has(tag.toLowerCase()) ? match : '';
+    });
 }
 
 export const FloatingAIChat: React.FC = () => {
@@ -158,6 +143,25 @@ export const FloatingAIChat: React.FC = () => {
 
   return (
     <>
+      {/* AI 聊天 HTML 内容样式 */}
+      <style>{`
+        .ai-chat-html table { width: 100%; border-collapse: collapse; margin: 6px 0; font-size: 12px; }
+        .ai-chat-html th, .ai-chat-html td { padding: 4px 8px; border: 1px solid rgba(255,255,255,0.12); text-align: left; }
+        .ai-chat-html th { background: rgba(91,163,192,0.15); color: rgba(255,255,255,0.9); font-weight: 600; }
+        .ai-chat-html td { color: rgba(255,255,255,0.8); }
+        .ai-chat-html tr:nth-child(even) td { background: rgba(255,255,255,0.03); }
+        .ai-chat-html code { background: rgba(255,255,255,0.08); padding: 1px 4px; border-radius: 4px; font-size: 11px; font-family: monospace; }
+        .ai-chat-html pre { background: rgba(0,0,0,0.3); padding: 8px; border-radius: 8px; overflow-x: auto; margin: 6px 0; }
+        .ai-chat-html pre code { background: none; padding: 0; }
+        .ai-chat-html p { margin: 4px 0; }
+        .ai-chat-html ul, .ai-chat-html ol { padding-left: 18px; margin: 4px 0; }
+        .ai-chat-html li { margin: 2px 0; }
+        .ai-chat-html h3 { font-size: 14px; font-weight: 600; margin: 8px 0 4px; color: rgba(255,255,255,0.95); }
+        .ai-chat-html h4 { font-size: 13px; font-weight: 600; margin: 6px 0 3px; color: rgba(255,255,255,0.9); }
+        .ai-chat-html hr { border: none; border-top: 1px solid rgba(255,255,255,0.1); margin: 8px 0; }
+        .ai-chat-html strong, .ai-chat-html b { color: rgba(255,255,255,0.95); }
+      `}</style>
+
       {/* 悬浮气泡按钮 */}
       {!isOpen && (
         <button
@@ -258,7 +262,11 @@ export const FloatingAIChat: React.FC = () => {
                     border: '1px solid rgba(255,255,255,0.08)',
                   }}
                 >
-                  {renderMarkdown(msg.content)}
+                  {msg.role === 'user' ? (
+                    <span>{msg.content}</span>
+                  ) : (
+                    <div className="ai-chat-html" dangerouslySetInnerHTML={{ __html: sanitizeHtml(msg.content) }} />
+                  )}
                 </div>
               </div>
             ))}
