@@ -1,5 +1,8 @@
 /**
  * 仪表板数据服务
+ * v9.1 - 修复跨品牌同名物料问题：
+ *   - getStoreManagerPriceTrend 根据门店品牌过滤物料
+ *
  * v9.0 - 店长端价格趋势 + 异常报警功能：
  *   - 新增 getStoreManagerPriceTrend 获取店长端价格趋势
  *   - 新增 getStoreManagerAnomalies 获取异常列表
@@ -589,12 +592,25 @@ export async function getStoreManagerPriceTrend(
       return null;
     }
 
-    // 获取该分类下的物料
-    const { data: materials, error: matError } = await supabase
+    // v9.1: 根据门店获取品牌ID，过滤物料避免跨品牌混淆
+    let brandId: number | undefined;
+    const { data: restaurant } = await supabase
+      .from('master_restaurant')
+      .select('brand_id')
+      .eq('id', restaurantId)
+      .single();
+    brandId = restaurant?.brand_id;
+
+    // 获取该分类下的物料（按品牌过滤：本品牌 + 通用）
+    let materialQuery = supabase
       .from('ims_material')
       .select('id, name')
       .eq('category_id', categoryId)
       .eq('is_active', true);
+    if (brandId) {
+      materialQuery = materialQuery.or(`brand_id.eq.${brandId},brand_id.eq.3`);
+    }
+    const { data: materials, error: matError } = await materialQuery;
 
     if (matError) {
       console.error('获取物料列表失败:', matError);

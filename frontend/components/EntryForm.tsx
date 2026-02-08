@@ -49,7 +49,7 @@
 // v1.9 - 添加收货订单图片上传区，集成到信息卡片中
 // v1.8 - 语音录入交互优化：识别后可编辑文本，点击发送按钮才解析填充表单
 
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { DailyLog, ProcurementItem, CategoryType, AttachedImage } from '../types';
 import { usePreloadData } from '../contexts/PreloadDataContext';
 import { recognizeReceipt, RecognitionParseError } from '../services/receiptRecognitionService';
@@ -434,6 +434,17 @@ const WorksheetScreen: React.FC<{
   const prevItemsLengthRef = useRef<number>(items.length);
   const isInitialMountRef = useRef<boolean>(true);
 
+  // v5.3: 品牌过滤的产品搜索（避免跨品牌同名物料混淆）
+  const { user } = useAuth();
+  const brandFilteredSearchProducts = useCallback(
+    (query: string) => searchProducts(query, user?.brand_id),
+    [user?.brand_id]
+  );
+  const brandFilteredGetAllProducts = useCallback(
+    () => getAllProductsAsOptions(user?.brand_id),
+    [user?.brand_id]
+  );
+
   // Scroll to top on initial mount, scroll to bottom only when new items are added
   useEffect(() => {
     if (scrollRef.current) {
@@ -806,7 +817,7 @@ const WorksheetScreen: React.FC<{
                           value={item.name}
                           onChange={(val) => onItemChange(index, 'name', val)}
                           placeholder="商品名称"
-                          searchFn={searchProducts}
+                          searchFn={brandFilteredSearchProducts}
                           variant="inline"
                           inputClassName={`text-[13px] font-bold text-primary placeholder-muted ${
                             materialValidationErrors[index] ? 'border-ios-red' : ''
@@ -814,7 +825,7 @@ const WorksheetScreen: React.FC<{
                           debounceMs={250}
                           minChars={1}
                           showDropdownButton={true}
-                          getAllOptionsFn={getAllProductsAsOptions}
+                          getAllOptionsFn={brandFilteredGetAllProducts}
                           onSelect={(option) => onProductSelect(index, option)}
                           onBlurCustom={(val) => onMaterialNameBlur(index, val)}
                         />

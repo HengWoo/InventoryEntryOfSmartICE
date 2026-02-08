@@ -145,7 +145,7 @@ export const PreloadDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
       // 注入到 supabaseService 缓存中
       injectSuppliersCache(suppliersData);
-      injectProductsCache(productsData);
+      injectProductsCache(productsData, brandId ?? undefined);
       injectUnitsCache(unitsData);
       injectCategoriesCache(categoriesData);
 

@@ -1,5 +1,10 @@
 /**
  * Supabase 数据库服务
+ * v5.3 - 修复跨品牌同名物料问题：
+ *   - searchProducts/getAllProductsAsOptions 支持 brandId 过滤
+ *   - exactMatchProduct 支持 brandId，使用更新后的 RPC
+ *   - productsCache 增加品牌感知，品牌变化时自动失效
+ *
  * v5.2 - 新增 voice_duration_seconds 字段，追踪语音录入时长
  * v5.1 - 修复 406 错误：.single() → .maybeSingle()，避免 0 行时抛出异常
  * v5.0 - 迁移到 master tables: ims_brand → master_brand, store_id → restaurant_id
@@ -341,13 +346,29 @@ export async function matchProduct(name: string): Promise<Product[]> {
 
 /**
  * 精确匹配产品（用于提交验证）
+ * v5.3 - 支持 brandId 过滤，避免跨品牌同名物料匹配错误
  * v3.8 - 支持别名匹配：使用 RPC 函数同时匹配 name 和 aliases
  * v3.3 - 新增：验证产品名称是否精确存在于数据库
  */
-export async function exactMatchProduct(name: string): Promise<Product | null> {
+export async function exactMatchProduct(name: string, brandId?: number): Promise<Product | null> {
   const trimmedName = name.trim();
 
-  // 使用数据库 RPC 函数进行匹配（同时匹配 name 和 aliases）
+  // v5.3: 优先使用品牌过滤的精确匹配
+  if (brandId) {
+    const { data, error } = await supabase
+      .from('ims_material')
+      .select('id, code, name, category_id, base_unit_id, is_active, aliases')
+      .eq('is_active', true)
+      .or(`brand_id.eq.${brandId},brand_id.eq.3`)
+      .or(`name.ilike.${trimmedName},aliases.cs.["${trimmedName}"]`)
+      .limit(1);
+
+    if (!error && data && data.length > 0) {
+      return data[0];
+    }
+  }
+
+  // 回退：使用 RPC 函数（无品牌过滤）
   const { data, error } = await supabase
     .rpc('match_material_by_alias', { search_name: trimmedName });
 
@@ -556,6 +577,7 @@ export interface AutocompleteOption {
 // 数据缓存 - 可从外部注入（PreloadDataContext 使用）
 let suppliersCache: Supplier[] | null = null;
 let productsCache: Product[] | null = null;
+let productsCacheBrandId: number | undefined = undefined; // v5.3: 跟踪缓存对应的品牌
 let unitsCache: Array<{id: number, code: string, name: string}> | null = null;
 let categoriesCache: Category[] | null = null;
 
@@ -570,9 +592,10 @@ export function injectSuppliersCache(data: Supplier[]): void {
 /**
  * 注入产品缓存（由 PreloadDataContext 调用）
  */
-export function injectProductsCache(data: Product[]): void {
+export function injectProductsCache(data: Product[], brandId?: number): void {
   productsCache = data;
-  console.log(`[SupabaseService] 注入产品缓存: ${data.length} 条`);
+  productsCacheBrandId = brandId;
+  console.log(`[SupabaseService] 注入产品缓存: ${data.length} 条, brand_id: ${brandId}`);
 }
 
 /**
@@ -624,18 +647,25 @@ export async function searchSuppliers(query: string): Promise<AutocompleteOption
 
 /**
  * 搜索产品（支持汉字 + 拼音首字母 + 别名匹配）
+ * v5.3 - 支持 brandId 过滤，避免跨品牌同名物料混淆
  * v3.9 - 别名匹配时显示格式：产品名（匹配的别名）
  * v3.8 - 支持别名搜索：搜索关键词会同时匹配 name 和 aliases 数组
  * v2.2 - 更新为使用 id/name 字段
  * @param query 搜索关键词
+ * @param brandId 可选品牌ID，过滤本品牌+通用物料
  * @returns 匹配的产品选项列表（最多10条）
  */
-export async function searchProducts(query: string): Promise<AutocompleteOption[]> {
+export async function searchProducts(query: string, brandId?: number): Promise<AutocompleteOption[]> {
   if (!query || query.length < 1) return [];
 
-  // 首次调用时加载全部数据
+  // v5.3: 品牌变化时失效缓存
+  if (productsCache && brandId !== productsCacheBrandId) {
+    productsCache = null;
+  }
+  // 首次调用时加载数据（按品牌过滤）
   if (!productsCache) {
-    productsCache = await getProducts();
+    productsCache = await getProducts(undefined, brandId);
+    productsCacheBrandId = brandId;
   }
 
   // v3.9: 自定义匹配逻辑，记录匹配的别名
@@ -716,6 +746,7 @@ export async function searchUnits(query: string): Promise<AutocompleteOption[]> 
 export function clearSearchCache(): void {
   suppliersCache = null;
   productsCache = null;
+  productsCacheBrandId = undefined;
   unitsCache = null;
   categoriesCache = null;
 }
@@ -724,12 +755,19 @@ export function clearSearchCache(): void {
 
 /**
  * 获取全部产品列表（用于下拉选择器）
+ * v5.3 - 支持 brandId 过滤
+ * @param brandId 可选品牌ID
  * @returns 全部产品选项列表
  */
-export async function getAllProductsAsOptions(): Promise<AutocompleteOption[]> {
-  // 使用缓存
+export async function getAllProductsAsOptions(brandId?: number): Promise<AutocompleteOption[]> {
+  // v5.3: 品牌变化时失效缓存
+  if (productsCache && brandId !== productsCacheBrandId) {
+    productsCache = null;
+  }
+  // 使用缓存（按品牌过滤）
   if (!productsCache) {
-    productsCache = await getProducts();
+    productsCache = await getProducts(undefined, brandId);
+    productsCacheBrandId = brandId;
   }
 
   return productsCache.map(p => ({

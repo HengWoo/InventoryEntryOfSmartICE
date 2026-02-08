@@ -1,5 +1,6 @@
 /**
  * 入库数据提交服务
+ * v4.4 - exactMatchProduct 传递 brandId，避免跨品牌同名物料匹配错误
  * v4.3 - 新增 voiceDurationSeconds 字段，追踪语音录入时长
  * v4.2 - 直接使用 brand_id 外键，移除 brandCodeToId 映射
  * v4.0 - 新建供应商时绑定品牌ID
@@ -249,7 +250,8 @@ export async function submitProcurement(
       console.log(`[提交] 产品ID已选择: ${item.name} (ID: ${materialId})`);
     } else {
       // v3.9: 使用 exactMatchProduct 支持别名匹配（如西红柿→番茄）
-      const product = await exactMatchProduct(item.name);
+      // v4.4: 传递 brandId 避免跨品牌同名物料匹配错误
+      const product = await exactMatchProduct(item.name, brandId ?? undefined);
       if (product) {
         materialId = product.id;
         console.log(`[提交] 产品匹配: ${item.name} -> ${product.name} (ID: ${materialId})`);
