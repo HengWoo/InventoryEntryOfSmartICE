@@ -1,5 +1,9 @@
 /**
  * 管理员面板服务
+ * v1.8 - 修复跨品牌同名物料的价格详情查询：
+ *   - getPriceRecordDetails 根据门店的 brand_id 过滤物料名称查询
+ *   - 解决同名物料（如"虾滑"）在不同品牌下 material_id 不同导致查不到记录的问题
+ *
  * v1.7 - 价格趋势使用加权平均：
  *   - getCategoryPriceTrend 使用数量加权平均计算单价
  *   - 公式：sum(unit_price * quantity) / sum(quantity)
@@ -1266,12 +1270,26 @@ export async function getPriceRecordDetails(
   restaurantId?: string
 ): Promise<PriceRecordDetail[]> {
   try {
-    // 先根据物料名称获取物料ID
-    const { data: materials } = await supabase
+    // 先根据门店获取品牌ID，用于精确匹配同名物料
+    let brandId: number | undefined;
+    if (restaurantId) {
+      const { data: restaurant } = await supabase
+        .from('master_restaurant')
+        .select('brand_id')
+        .eq('id', restaurantId)
+        .single();
+      brandId = restaurant?.brand_id;
+    }
+
+    // 根据物料名称+品牌获取物料ID（避免跨品牌同名物料混淆）
+    let materialQuery = supabase
       .from('ims_material')
       .select('id, name')
-      .eq('name', materialName)
-      .limit(1);
+      .eq('name', materialName);
+    if (brandId) {
+      materialQuery = materialQuery.eq('brand_id', brandId);
+    }
+    const { data: materials } = await materialQuery.limit(1);
 
     const materialId = materials?.[0]?.id;
 
