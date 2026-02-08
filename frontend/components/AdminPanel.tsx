@@ -1,5 +1,11 @@
 /**
  * 管理员面板主组件
+ * v2.14 - 异常告警展开录入详情 + 图片预加载：
+ *   - 点击异常告警行展开该物料当天的录入详情（数量、单价、金额、供应商、图片）
+ *   - 获取详情数据后自动预加载图片到浏览器缓存
+ *   - 切换品牌/门店过滤时重置展开状态
+ *   - 价格趋势详情也添加图片预加载
+ *
  * v2.13 - 价格详情表格优化：
  *   - 数量和单位分开显示为两列
  *   - 添加可折叠的图片展示（入库单、货物照片）
@@ -119,7 +125,7 @@ import {
   useCategoriesByBrand,
   useCategoryPriceTrend
 } from '../hooks/useAdminData';
-import { SupplierInput, MaterialInput, getPriceRecordDetails, PriceRecordDetail } from '../services/adminService';
+import { SupplierInput, MaterialInput, getPriceRecordDetails, PriceRecordDetail, PriceAlertExtended } from '../services/adminService';
 
 // 管理员面板子视图
 type AdminSubView = 'overview' | 'monitoring' | 'alerts' | 'reports' | 'price-trend' | 'users' | 'restaurants' | 'suppliers' | 'materials';
@@ -150,8 +156,8 @@ export const AdminPanel: React.FC = () => {
   const [priceTrendBrandId, setPriceTrendBrandId] = useState<number | undefined>(undefined);
   const [priceTrendRestaurantIds, setPriceTrendRestaurantIds] = useState<string[]>([]);
   const [priceTrendCategoryId, setPriceTrendCategoryId] = useState<number | undefined>(undefined);
-  const [priceTrendDays, setPriceTrendDays] = useState<number>(30);
-  const [showMaterialSplit, setShowMaterialSplit] = useState(false);
+  const [priceTrendDays, setPriceTrendDays] = useState<number>(90);
+  const [showMaterialSplit, setShowMaterialSplit] = useState(true);
   // v2.9: 点击锁定高亮（null = 未锁定，string = 锁定的物料名称）
   const [lockedMaterial, setLockedMaterial] = useState<string | null>(null);
   // v2.11: 点击数据点显示录入详情
@@ -166,6 +172,11 @@ export const AdminPanel: React.FC = () => {
   // v2.13: 图片预览和展开状态
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [expandedRecordIds, setExpandedRecordIds] = useState<Set<number>>(new Set());
+
+  // v2.14: 异常告警展开详情状态
+  const [expandedAlertId, setExpandedAlertId] = useState<string | null>(null);
+  const [alertDetails, setAlertDetails] = useState<PriceRecordDetail[]>([]);
+  const [alertDetailsLoading, setAlertDetailsLoading] = useState(false);
 
   // v2.3: 搜索状态
   const [supplierSearch, setSupplierSearch] = useState('');
@@ -694,7 +705,35 @@ export const AdminPanel: React.FC = () => {
     );
   };
 
-  // 渲染异常告警视图 - v2.0: 添加品牌/门店过滤
+  // v2.14: 切换异常告警展开详情 + 图片预加载
+  const toggleAlertExpand = async (alert: PriceAlertExtended) => {
+    if (expandedAlertId === alert.id) {
+      setExpandedAlertId(null);
+      setAlertDetails([]);
+      return;
+    }
+    setExpandedAlertId(alert.id);
+    setAlertDetailsLoading(true);
+    setExpandedRecordIds(new Set());
+    try {
+      const details = await getPriceRecordDetails(alert.detected_at, alert.material_name, alert.restaurant_id);
+      setAlertDetails(details);
+      // 预加载所有图片到浏览器缓存
+      details.forEach(d => {
+        [...d.receiptImages, ...d.goodsImages].forEach(url => {
+          const img = new Image();
+          img.src = url;
+        });
+      });
+    } catch (error) {
+      console.error('[AdminPanel] 获取告警详情失败:', error);
+      setAlertDetails([]);
+    } finally {
+      setAlertDetailsLoading(false);
+    }
+  };
+
+  // 渲染异常告警视图 - v2.14: 添加展开录入详情 + 图片预加载
   const renderAlerts = () => {
     return (
       <GlassCard padding="md">
@@ -704,8 +743,8 @@ export const AdminPanel: React.FC = () => {
             <p className="text-xs text-white/50">检测规则：同一物料价格波动超过 ±10%</p>
           </div>
           <div className="flex gap-2">
-            <BrandFilter value={alertBrandFilter} onChange={setAlertBrandFilter} label="全部品牌" />
-            <RestaurantFilter value={alertRestaurantFilter} onChange={setAlertRestaurantFilter} />
+            <BrandFilter value={alertBrandFilter} onChange={(v) => { setAlertBrandFilter(v); setExpandedAlertId(null); }} label="全部品牌" />
+            <RestaurantFilter value={alertRestaurantFilter} onChange={(v) => { setAlertRestaurantFilter(v); setExpandedAlertId(null); }} />
           </div>
         </div>
 
@@ -731,16 +770,136 @@ export const AdminPanel: React.FC = () => {
               </thead>
               <tbody>
                 {priceAlerts.map((alert) => (
-                  <tr key={alert.id} className="border-b border-white/5 last:border-0">
-                    <td className="py-3 pr-4 text-white whitespace-nowrap">{alert.material_name}</td>
-                    <td className="py-3 pr-4 text-white/70 whitespace-nowrap">{alert.restaurant_name}</td>
-                    <td className="py-3 pr-4 text-right text-white/50 whitespace-nowrap">¥{alert.old_price.toFixed(2)}</td>
-                    <td className="py-3 pr-4 text-right text-white whitespace-nowrap">¥{alert.new_price.toFixed(2)}</td>
-                    <td className={`py-3 pr-4 text-right font-medium whitespace-nowrap ${alert.change_percent > 0 ? 'text-ios-red' : 'text-ios-green'}`}>
-                      {alert.change_percent > 0 ? '↑' : '↓'}{Math.abs(alert.change_percent).toFixed(1)}%
-                    </td>
-                    <td className="py-3 text-right text-white/50 whitespace-nowrap">{formatDate(alert.detected_at)}</td>
-                  </tr>
+                  <React.Fragment key={alert.id}>
+                    <tr
+                      className="border-b border-white/5 cursor-pointer hover:bg-white/5 transition-colors"
+                      onClick={() => toggleAlertExpand(alert)}
+                    >
+                      <td className="py-3 pr-4 text-white whitespace-nowrap">{alert.material_name}</td>
+                      <td className="py-3 pr-4 text-white/70 whitespace-nowrap">{alert.restaurant_name}</td>
+                      <td className="py-3 pr-4 text-right text-white/50 whitespace-nowrap">¥{alert.old_price.toFixed(2)}</td>
+                      <td className="py-3 pr-4 text-right text-white whitespace-nowrap">¥{alert.new_price.toFixed(2)}</td>
+                      <td className={`py-3 pr-4 text-right font-medium whitespace-nowrap ${alert.change_percent > 0 ? 'text-ios-red' : 'text-ios-green'}`}>
+                        {alert.change_percent > 0 ? '↑' : '↓'}{Math.abs(alert.change_percent).toFixed(1)}%
+                      </td>
+                      <td className="py-3 text-right text-white/50 whitespace-nowrap">{formatDate(alert.detected_at)}</td>
+                    </tr>
+
+                    {/* v2.14: 展开的录入详情 */}
+                    {expandedAlertId === alert.id && (
+                      <tr>
+                        <td colSpan={6} className="p-0">
+                          <div className="bg-white/5 px-3 py-3 border-b border-white/10">
+                            {alertDetailsLoading ? (
+                              <div className="text-center py-4 text-white/40 text-sm">加载录入详情中...</div>
+                            ) : alertDetails.length === 0 ? (
+                              <div className="text-center py-4 text-white/40 text-sm">暂无录入记录</div>
+                            ) : (
+                              <div className="overflow-x-auto">
+                                <table className="w-full text-xs">
+                                  <thead>
+                                    <tr className="text-left text-white/40 border-b border-white/10">
+                                      <th className="pb-2 pr-3 font-medium">品名</th>
+                                      <th className="pb-2 pr-3 font-medium text-right">数量</th>
+                                      <th className="pb-2 pr-3 font-medium">单位</th>
+                                      <th className="pb-2 pr-3 font-medium text-right">单价</th>
+                                      <th className="pb-2 pr-3 font-medium text-right">金额</th>
+                                      <th className="pb-2 pr-3 font-medium hidden md:table-cell">供应商</th>
+                                      <th className="pb-2 pr-3 font-medium hidden md:table-cell">时间</th>
+                                      <th className="pb-2 font-medium text-center">图片</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {alertDetails.map((record) => {
+                                      const showImages = expandedRecordIds.has(record.id);
+                                      const hasImages = record.receiptImages.length > 0 || record.goodsImages.length > 0;
+                                      return (
+                                        <React.Fragment key={record.id}>
+                                          <tr className="border-b border-white/5 hover:bg-white/5">
+                                            <td className="py-2 pr-3 text-white">{record.itemName || record.materialName}</td>
+                                            <td className="py-2 pr-3 text-right text-white/70">{record.quantity}</td>
+                                            <td className="py-2 pr-3 text-white/70">{record.unit || '-'}</td>
+                                            <td className="py-2 pr-3 text-right text-white">¥{record.unitPrice.toFixed(2)}</td>
+                                            <td className="py-2 pr-3 text-right text-ios-blue">¥{record.totalAmount.toFixed(2)}</td>
+                                            <td className="py-2 pr-3 text-white/70 hidden md:table-cell">{record.supplierName || '-'}</td>
+                                            <td className="py-2 pr-3 text-white/50 hidden md:table-cell">
+                                              {record.createdAt ? new Date(record.createdAt).toLocaleString('zh-CN', {
+                                                month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                                              }) : '-'}
+                                            </td>
+                                            <td className="py-2 text-center">
+                                              {hasImages ? (
+                                                <button
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setExpandedRecordIds(prev => {
+                                                      const next = new Set(prev);
+                                                      if (next.has(record.id)) next.delete(record.id);
+                                                      else next.add(record.id);
+                                                      return next;
+                                                    });
+                                                  }}
+                                                  className="text-ios-blue hover:text-white transition-colors"
+                                                >
+                                                  {showImages ? '收起 ▲' : '查看 ▼'}
+                                                </button>
+                                              ) : (
+                                                <span className="text-white/30">-</span>
+                                              )}
+                                            </td>
+                                          </tr>
+                                          {showImages && hasImages && (
+                                            <tr className="bg-white/5">
+                                              <td colSpan={8} className="py-3 px-4">
+                                                <div className="flex flex-wrap gap-4">
+                                                  {record.receiptImages.length > 0 && (
+                                                    <div className="flex flex-col gap-2">
+                                                      <span className="text-xs text-white/50">入库单 ({record.receiptImages.length})</span>
+                                                      <div className="flex flex-wrap gap-2">
+                                                        {record.receiptImages.map((url, idx) => (
+                                                          <img
+                                                            key={idx}
+                                                            src={url}
+                                                            alt={`入库单 ${idx + 1}`}
+                                                            className="h-20 w-auto rounded-lg border border-white/10 hover:border-ios-blue transition-colors cursor-pointer"
+                                                            onClick={(e) => { e.stopPropagation(); setPreviewImage(url); }}
+                                                          />
+                                                        ))}
+                                                      </div>
+                                                    </div>
+                                                  )}
+                                                  {record.goodsImages.length > 0 && (
+                                                    <div className="flex flex-col gap-2">
+                                                      <span className="text-xs text-white/50">货物照片 ({record.goodsImages.length})</span>
+                                                      <div className="flex flex-wrap gap-2">
+                                                        {record.goodsImages.map((url, idx) => (
+                                                          <img
+                                                            key={idx}
+                                                            src={url}
+                                                            alt={`货物照片 ${idx + 1}`}
+                                                            className="h-20 w-auto rounded-lg border border-white/10 hover:border-ios-blue transition-colors cursor-pointer"
+                                                            onClick={(e) => { e.stopPropagation(); setPreviewImage(url); }}
+                                                          />
+                                                        ))}
+                                                      </div>
+                                                    </div>
+                                                  )}
+                                                </div>
+                                              </td>
+                                            </tr>
+                                          )}
+                                        </React.Fragment>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
                 ))}
               </tbody>
             </table>
@@ -1464,6 +1623,13 @@ export const AdminPanel: React.FC = () => {
       try {
         const details = await getPriceRecordDetails(date, materialName, restaurantId);
         setPriceRecordDetails(details);
+        // v2.14: 预加载图片到浏览器缓存
+        details.forEach(d => {
+          [...d.receiptImages, ...d.goodsImages].forEach(url => {
+            const img = new Image();
+            img.src = url;
+          });
+        });
       } catch (error) {
         console.error('获取价格详情失败:', error);
         setPriceRecordDetails([]);
@@ -1725,11 +1891,11 @@ export const AdminPanel: React.FC = () => {
                 <div className="flex items-center justify-between">
                   <div className="text-xs text-white/40">
                     {isMultiRestaurant && !showMaterialSplit && '不同线型代表不同门店'}
-                    {showMaterialSplit && !lockedMaterial && '点击图例锁定物料，再点击图表查看录入详情'}
+                    {showMaterialSplit && !lockedMaterial && '点击项目名字聚焦项目'}
                     {showMaterialSplit && lockedMaterial && (
                       <span className="text-ios-blue">
-                        已锁定: {lockedMaterial}
-                        <span className="text-white/40 ml-2">点击图表查看详情</span>
+                        已聚焦: {lockedMaterial}
+                        <span className="text-white/40 ml-2">点击数据点查看录入详情</span>
                         <button
                           onClick={() => {
                             setLockedMaterial(null);
