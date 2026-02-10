@@ -312,6 +312,17 @@ git push origin main && git push jeremydong main
 
 ---
 
+## 代码探索优先使用 LSP
+
+当需要探索代码库（查找定义、引用、符号、调用链等）时，**优先使用 LSP 工具**而非 Grep/Glob：
+
+- **TypeScript LSP 已启用**：覆盖 `frontend/` 下所有 `.ts`/`.tsx` 文件
+- 可用操作：`goToDefinition`、`findReferences`、`hover`、`documentSymbol`、`workspaceSymbol`、`incomingCalls`、`outgoingCalls` 等
+- LSP 比文本搜索更精确（理解类型、作用域、继承关系），速度更快
+- 仅在 LSP 不可用时（如 Python 文件、SQL 文件）回退到 Grep/Glob
+
+---
+
 ## TODO / 待办事项
 
 ### SKU 单位规范化（待实现）
