@@ -214,6 +214,9 @@ export const AdminPanel: React.FC = () => {
   const { report: crossReport, isLoading: reportLoading } = useCrossRestaurantReport(reportDays);
   const { brands } = useBrandList();
   const { categories } = useCategoryList(selectedBrandId);
+  // v2.5: 表单专用分类列表 - 按表单选择的品牌过滤，避免跨品牌重名分类
+  const effectiveFormBrandId = formBrandId ?? editingMaterial?.brand_id;
+  const { categories: formCategories } = useCategoryList(effectiveFormBrandId);
   const { units } = useUnitList();
   const { details: restaurantDetails, isLoading: detailsLoading } = useRestaurantDetails(expandedRestaurantId, reportDays);
   // v2.8: 价格趋势数据
@@ -361,9 +364,11 @@ export const AdminPanel: React.FC = () => {
   // v2.3: 使用 GlassSelect 替代原生 select - 品牌过滤
   const brandOptions = brands.map((b) => ({ value: b.id, label: b.name }));
   const restaurantOptions = restaurants.map((r) => ({ value: r.id, label: r.restaurant_name }));
-  // v2.4: 分类和单位选项
+  // v2.4: 分类和单位选项（表格过滤用）
   const categoryOptions = categories.map((c) => ({ value: c.id, label: c.name }));
   const unitOptions = units.map((u) => ({ value: u.id, label: u.name }));
+  // v2.5: 表单专用分类选项（按表单品牌过滤，避免跨品牌重名分类）
+  const formCategoryOptions = formCategories.map((c) => ({ value: c.id, label: c.name }));
 
   // 品牌过滤下拉框（使用 GlassSelect）
   const BrandFilter = ({ value, onChange, label = "筛选品牌" }: { value: number | undefined; onChange: (v: number | undefined) => void; label?: string }) => (
@@ -2481,21 +2486,23 @@ export const AdminPanel: React.FC = () => {
                   <GlassSelect
                     options={brandOptions}
                     value={formBrandId}
-                    onChange={(v) => setFormBrandId(v as number | undefined)}
+                    onChange={(v) => { setFormBrandId(v as number | undefined); setFormCategoryId(undefined); }}
                     placeholder="选择品牌"
                     className="w-full"
                   />
                 </div>
+                {formBrandId && (
                 <div>
                   <label className="block text-xs text-white/60 mb-1">分类</label>
                   <GlassSelect
-                    options={categoryOptions}
+                    options={formCategoryOptions}
                     value={formCategoryId}
                     onChange={(v) => setFormCategoryId(v as number | undefined)}
                     placeholder="选择分类"
                     className="w-full"
                   />
                 </div>
+                )}
                 <div>
                   <label className="block text-xs text-white/60 mb-1">单位</label>
                   <GlassSelect
@@ -2535,7 +2542,7 @@ export const AdminPanel: React.FC = () => {
                   <GlassSelect
                     options={brandOptions}
                     value={formBrandId ?? editingMaterial.brand_id}
-                    onChange={(v) => setFormBrandId(v as number | undefined)}
+                    onChange={(v) => { setFormBrandId(v as number | undefined); setFormCategoryId(undefined); }}
                     placeholder="选择品牌"
                     className="w-full"
                   />
@@ -2543,7 +2550,7 @@ export const AdminPanel: React.FC = () => {
                 <div>
                   <label className="block text-xs text-white/60 mb-1">分类</label>
                   <GlassSelect
-                    options={categoryOptions}
+                    options={formCategoryOptions}
                     value={formCategoryId ?? editingMaterial.category_id}
                     onChange={(v) => setFormCategoryId(v as number | undefined)}
                     placeholder="选择分类"
