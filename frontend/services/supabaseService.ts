@@ -741,6 +741,23 @@ export async function searchUnits(query: string): Promise<AutocompleteOption[]> 
 }
 
 /**
+ * 获取全部单位选项（用于下拉选择器）
+ * v8.0 - 新增：与 getAllSuppliersAsOptions / getAllProductsAsOptions 对齐
+ */
+export async function getAllUnitsAsOptions(): Promise<AutocompleteOption[]> {
+  if (!unitsCache) {
+    unitsCache = await getAllUnits();
+  }
+
+  return unitsCache.map(u => ({
+    id: u.id,
+    label: u.name,
+    value: u.name,
+    sublabel: u.code || undefined,
+  }));
+}
+
+/**
  * 清除搜索缓存（数据更新后调用）
  */
 export function clearSearchCache(): void {

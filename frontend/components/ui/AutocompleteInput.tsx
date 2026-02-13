@@ -299,6 +299,14 @@ export const AutocompleteInput: React.FC<AutocompleteInputProps> = ({
     }
   }, [value, lastValidValue]);
 
+  // v5.0: 当外部程序化设置 value 时（OCR填充、语音填充、草稿恢复），同步 lastValidValue
+  // 否则 strictSelection 会在 blur 时将合法的预填值恢复为 ''
+  useEffect(() => {
+    if (value && value !== lastValidValue && document.activeElement !== inputRef.current) {
+      setLastValidValue(value);
+    }
+  }, [value]);
+
   // v4.3: 保持 valueRef 与 value 同步，用于 setTimeout 中获取最新值
   useEffect(() => {
     valueRef.current = value;

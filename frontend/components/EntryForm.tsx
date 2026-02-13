@@ -62,8 +62,9 @@ import { saveDraft, loadDraft, clearDraft, getDraftInfo, DraftInfo, EntryDraft }
 import { useAuth } from '../contexts/AuthContext';
 import { Icons } from '../constants';
 import { GlassCard, Button, Input, AutocompleteInput } from './ui';
-import { searchSuppliers, searchProducts, getAllProductsAsOptions, getAllSuppliersAsOptions, exactMatchProduct } from '../services/supabaseService';
+import { searchSuppliers, searchProducts, searchUnits, getAllProductsAsOptions, getAllSuppliersAsOptions, getAllUnitsAsOptions, matchUnit, exactMatchProduct } from '../services/supabaseService';
 import type { AutocompleteOption } from '../services/supabaseService';
+import { standardizeUnitsInItems } from '../services/unitStandardizationService';
 
 interface EntryFormProps {
   onSave: (log: Omit<DailyLog, 'id'>) => void;
@@ -406,6 +407,7 @@ const WorksheetScreen: React.FC<{
   onNotesChange: (val: string) => void;
   onItemChange: (index: number, field: keyof ProcurementItem, value: any) => void;
   onProductSelect: (index: number, option: AutocompleteOption) => void;
+  onUnitSelect: (index: number, option: AutocompleteOption) => void;  // v8.0: 单位选择回调
   onAddItem: () => void;
   onRemoveItem: (index: number) => void;
   onReceiptImageUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
@@ -422,7 +424,7 @@ const WorksheetScreen: React.FC<{
   items, supplier, supplierOther, notes, isAnalyzing, isRecognizing, grandTotal, receiptImages, goodsImages,
   voiceStatus, voiceMessage, transcriptionText, showTranscription, isSendingTranscription, selectedCategory,
   materialValidationErrors, onMaterialNameBlur, isWastage, onWastageToggle,
-  onBack, onSupplierChange, onSupplierOtherChange, onNotesChange, onItemChange, onProductSelect, onAddItem, onRemoveItem,
+  onBack, onSupplierChange, onSupplierOtherChange, onNotesChange, onItemChange, onProductSelect, onUnitSelect, onAddItem, onRemoveItem,
   onReceiptImageUpload, onGoodsImageUpload, onRemoveReceiptImage, onRemoveGoodsImage, onAIRecognize,
   onVoiceStart, onVoiceStop, onTranscriptionChange, onSendTranscription, onReview
 }) => {
@@ -873,12 +875,19 @@ const WorksheetScreen: React.FC<{
                             天
                           </div>
                         ) : (
-                          <input
-                              type="text"
+                          <AutocompleteInput
                               value={item.unit || ''}
-                              onChange={(e) => onItemChange(index, 'unit', e.target.value)}
+                              onChange={(val) => onItemChange(index, 'unit', val)}
                               placeholder="单位"
-                              className="w-full bg-cacao-husk/60 border border-[rgba(138,75,47,0.3)] rounded-glass-sm py-2 text-center text-sm text-secondary outline-none focus:border-ember-rock/50 placeholder:text-white/40"
+                              searchFn={searchUnits}
+                              variant="inline"
+                              inputClassName="text-[13px] text-center text-secondary placeholder-muted"
+                              debounceMs={200}
+                              minChars={1}
+                              showDropdownButton={true}
+                              getAllOptionsFn={getAllUnitsAsOptions}
+                              strictSelection={true}
+                              onSelect={(option) => onUnitSelect(index, option)}
                           />
                         )}
                     </div>
@@ -1475,6 +1484,21 @@ export const EntryForm: React.FC<EntryFormProps> = ({ onSave, userName, userNick
     }
   };
 
+  // v8.0: 标准化包装器 — 语音/OCR 结果先过单位标准化再填充表单
+  const fillFormWithStandardizedResult = async (result: VoiceEntryResult) => {
+    if (result.items?.length > 0) {
+      result = { ...result, items: await standardizeUnitsInItems(result.items) };
+    }
+    fillFormWithResult(result);
+  };
+
+  const replaceFormWithStandardizedResult = async (result: VoiceEntryResult) => {
+    if (result.items?.length > 0) {
+      result = { ...result, items: await standardizeUnitsInItems(result.items) };
+    }
+    replaceFormWithResult(result);
+  };
+
   // v4.6: 手动发送文本进行解析（支持修改模式）+ 语音使用次数追踪
   const handleSendTranscription = async () => {
     if (!transcriptionText.trim() || isSendingTranscription) return;
@@ -1498,10 +1522,11 @@ export const EntryForm: React.FC<EntryFormProps> = ({ onSave, userName, userNick
         // v4.6: 增加语音识别使用次数
         setUseAiVoiceCount(prev => prev + 1);
         // v3.3: 如果有现有数据，使用替换模式；否则使用添加模式
+        // v8.0: 语音结果先过单位标准化
         if (hasExistingItems) {
-          replaceFormWithResult(result);
+          replaceFormWithStandardizedResult(result);
         } else {
-          fillFormWithResult(result);
+          fillFormWithStandardizedResult(result);
         }
         // 清除文本框
         setTranscriptionText('');
@@ -1589,10 +1614,11 @@ export const EntryForm: React.FC<EntryFormProps> = ({ onSave, userName, userNick
         // 不自动填充，等待用户点击发送按钮
       },
       // 保留 onResult 以兼容旧版后端（自动解析模式）
+      // v8.0: 自动解析模式的结果也过单位标准化
       onResult: (result, rawText) => {
         console.log('[语音录入] 收到解析结果:', result);
         setTranscriptionText(rawText);
-        fillFormWithResult(result);
+        fillFormWithStandardizedResult(result);
         // 自动解析模式：清除文本框
         setTimeout(() => {
           setTranscriptionText('');
@@ -1768,6 +1794,11 @@ export const EntryForm: React.FC<EntryFormProps> = ({ onSave, userName, userNick
       }
     }
 
+    // v8.0: 手动输入单位时清除 unitId（因为文本可能不再对应之前选择的单位）
+    if (field === 'unit') {
+      updatedItem.unitId = undefined;
+    }
+
     // v2.1 - 双向计算：支持用户输入总价或单价
     // v4.3 - 修复浮点数精度问题（如 4.1 * 3 = 12.299999... 的问题）
     if (field === 'quantity' || field === 'unitPrice') {
@@ -1805,6 +1836,17 @@ export const EntryForm: React.FC<EntryFormProps> = ({ onSave, userName, userNick
       delete newErrors[index];
       return newErrors;
     });
+  };
+
+  // v8.0: 单位选择回调 - 同时设置 unit 和 unitId
+  const handleUnitSelect = (index: number, option: AutocompleteOption) => {
+    const newItems = [...items];
+    newItems[index] = {
+      ...newItems[index],
+      unit: option.value,
+      unitId: option.id as number
+    };
+    setItems(newItems);
   };
 
   // v6.5: 验证物料名称是否存在于数据库（防抖触发 + onBlur 兜底）
@@ -2472,6 +2514,7 @@ ${productList}
           onNotesChange={setNotes}
           onItemChange={handleItemChange}
           onProductSelect={handleProductSelect}
+          onUnitSelect={handleUnitSelect}
           onAddItem={addNewRow}
           onRemoveItem={removeRow}
           onReceiptImageUpload={handleReceiptImageUpload}

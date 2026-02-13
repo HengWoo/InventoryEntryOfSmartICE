@@ -1,0 +1,207 @@
+// 单位标准化服务
+// v1.0 - 本地单位标准化（无 Gemini API 调用）
+// 处理 OCR 错误、别名、带数量格式等，将非标准单位映射到数据库标准单位
+// 单位是有限集合（~30 个），纯本地映射 + 编辑距离模糊匹配即可
+
+import { ProcurementItem } from '../types';
+import { getAllUnits } from './supabaseService';
+
+// ============ OCR 常见错误映射 ============
+// 形近字 / 同音字导致的 OCR 误识别
+const OCR_ERROR_MAP: Record<string, string> = {
+  '代': '袋',
+  '仙': '斤',
+  '痛': '桶',
+  '相': '箱',
+  '合': '盒',
+  '瓶': '瓶',  // 正确，保留
+  '平': '瓶',
+  '屏': '瓶',
+  '斥': '只',
+  '包': '包',  // 正确，保留
+  '拍': '排',
+  '把': '把',  // 正确，保留
+  '提': '提',  // 正确，保留
+  '条': '条',  // 正确，保留
+  '付': '副',
+  '盆': '盆',  // 正确，保留
+  '打': '打',  // 正确，保留
+  '筒': '桶',
+};
+
+// ============ 别名 / 同义词映射 ============
+// 常见的单位别名、英文缩写、大小写变体
+const ALIAS_MAP: Record<string, string> = {
+  // 重量
+  'kg': '公斤',
+  'KG': '公斤',
+  'Kg': '公斤',
+  '千克': '公斤',
+  'g': '克',
+  'G': '克',
+  '市斤': '斤',
+  'jin': '斤',
+  'liang': '两',
+  '两': '两',
+  'lb': '磅',
+  'lbs': '磅',
+  // 体积
+  'L': '升',
+  'l': '升',
+  'ml': '毫升',
+  'ML': '毫升',
+  'mL': '毫升',
+  // 数量
+  '个': '个',
+  '只': '只',
+  '枚': '枚',
+  '根': '根',
+  '颗': '颗',
+  '粒': '粒',
+  '头': '头',
+  '尾': '尾',
+  '条': '条',
+  // 包装
+  '袋': '袋',
+  '包': '包',
+  '盒': '盒',
+  '箱': '箱',
+  '桶': '桶',
+  '瓶': '瓶',
+  '罐': '罐',
+  '听': '听',
+  '提': '提',
+  '打': '打',
+  '板': '板',
+  '排': '排',
+  '扎': '扎',
+  '捆': '捆',
+  // 其他
+  '份': '份',
+  '套': '套',
+  '副': '副',
+  '把': '把',
+  '块': '块',
+  '片': '片',
+  '张': '张',
+  '卷': '卷',
+  '天': '天',
+};
+
+// ============ 带数量的格式检测 ============
+// 匹配如 "500g", "2kg", "5斤" 等格式，提取单位部分
+const WEIGHT_FORMAT_REGEX = /^(\d+(?:\.\d+)?)\s*(g|kg|克|公斤|斤|两|ml|升|毫升|磅|lbs?)$/i;
+
+// ============ 编辑距离（Levenshtein） ============
+function levenshteinDistance(a: string, b: string): number {
+  const m = a.length;
+  const n = b.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
+
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1][j - 1]
+        : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+    }
+  }
+
+  return dp[m][n];
+}
+
+// ============ 单位缓存 ============
+let unitNamesCache: string[] | null = null;
+
+async function getUnitNames(): Promise<string[]> {
+  if (unitNamesCache) return unitNamesCache;
+  const units = await getAllUnits();
+  unitNamesCache = units.map(u => u.name);
+  return unitNamesCache;
+}
+
+// ============ 主标准化函数 ============
+
+/**
+ * 标准化单个单位字符串
+ * 处理流程：trim → OCR纠错 → 别名映射 → 带数量格式提取 → 编辑距离模糊匹配
+ * @returns 标准化后的单位名，如果无法匹配则返回原值
+ */
+export async function standardizeUnit(raw: string): Promise<string> {
+  if (!raw || !raw.trim()) return raw;
+
+  let unit = raw.trim();
+
+  // 1. OCR 错误纠正（单字）
+  if (unit.length === 1 && OCR_ERROR_MAP[unit]) {
+    unit = OCR_ERROR_MAP[unit];
+  }
+
+  // 2. 别名映射（精确匹配）
+  if (ALIAS_MAP[unit]) {
+    unit = ALIAS_MAP[unit];
+  }
+
+  // 3. 带数量格式检测（如 "500g" → "克"）
+  const weightMatch = unit.match(WEIGHT_FORMAT_REGEX);
+  if (weightMatch) {
+    const unitPart = weightMatch[2];
+    if (ALIAS_MAP[unitPart]) {
+      unit = ALIAS_MAP[unitPart];
+    } else if (ALIAS_MAP[unitPart.toLowerCase()]) {
+      unit = ALIAS_MAP[unitPart.toLowerCase()];
+    }
+  }
+
+  // 4. 检查是否已经是有效单位
+  const validUnits = await getUnitNames();
+  if (validUnits.includes(unit)) {
+    return unit;
+  }
+
+  // 5. 编辑距离模糊匹配（仅当距离 ≤ 1 时匹配）
+  let bestMatch: string | null = null;
+  let bestDistance = Infinity;
+  for (const validUnit of validUnits) {
+    const dist = levenshteinDistance(unit, validUnit);
+    if (dist < bestDistance) {
+      bestDistance = dist;
+      bestMatch = validUnit;
+    }
+  }
+
+  if (bestDistance <= 1 && bestMatch) {
+    console.log(`[单位标准化] 模糊匹配: "${raw}" → "${bestMatch}" (距离=${bestDistance})`);
+    return bestMatch;
+  }
+
+  // 无法标准化，返回原值（strictSelection 会在表单层兜底）
+  console.log(`[单位标准化] 无法匹配: "${raw}"，保留原值`);
+  return unit;
+}
+
+/**
+ * 批量标准化物品列表中的单位
+ * @param items 物品列表（来自 OCR/语音解析结果）
+ * @returns 单位标准化后的物品列表（新数组，不修改原数组）
+ */
+export async function standardizeUnitsInItems(items: ProcurementItem[]): Promise<ProcurementItem[]> {
+  if (!items || items.length === 0) return items;
+
+  const result: ProcurementItem[] = [];
+  for (const item of items) {
+    if (item.unit) {
+      const standardized = await standardizeUnit(item.unit);
+      if (standardized !== item.unit) {
+        console.log(`[单位标准化] "${item.name}": "${item.unit}" → "${standardized}"`);
+      }
+      result.push({ ...item, unit: standardized });
+    } else {
+      result.push({ ...item });
+    }
+  }
+
+  return result;
+}

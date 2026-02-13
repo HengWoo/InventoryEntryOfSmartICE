@@ -11,6 +11,7 @@
 
 import { ProcurementItem } from '../types';
 import { correctMaterialNames, applyCorrections, CorrectionMap } from './materialCorrectionService';
+import { standardizeUnitsInItems } from './unitStandardizationService';
 import type { Product } from './supabaseService';
 
 // 自定义错误：AI 无法提取结构化数据时，携带 AI 的原始回复
@@ -280,6 +281,12 @@ export async function recognizeReceipt(
     }
   } else {
     console.log('[收货单识别] 未提供数据库物料列表，跳过纠偏');
+  }
+
+  // v8.0: 单位标准化 — OCR 识别的单位可能是错别字或非标准写法
+  if (validated.items.length > 0) {
+    console.log('[收货单识别] 开始单位标准化...');
+    validated.items = await standardizeUnitsInItems(validated.items);
   }
 
   console.log('[收货单识别] 最终识别结果:', validated);
