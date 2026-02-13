@@ -11,7 +11,7 @@
 
 import { ProcurementItem } from '../types';
 import { correctMaterialNames, applyCorrections, CorrectionMap } from './materialCorrectionService';
-import { standardizeUnitsInItems } from './unitStandardizationService';
+import { detectAndFixUnitSpecSwap, standardizeUnitsInItems } from './unitStandardizationService';
 import type { Product } from './supabaseService';
 
 // 自定义错误：AI 无法提取结构化数据时，携带 AI 的原始回复
@@ -281,6 +281,11 @@ export async function recognizeReceipt(
     }
   } else {
     console.log('[收货单识别] 未提供数据库物料列表，跳过纠偏');
+  }
+
+  // v8.1: 单位↔规格防反 — OCR 可能把重量格式放入 unit、把单位名放入 specification
+  if (validated.items.length > 0) {
+    validated.items = await detectAndFixUnitSpecSwap(validated.items);
   }
 
   // v8.0: 单位标准化 — OCR 识别的单位可能是错别字或非标准写法

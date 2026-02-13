@@ -104,6 +104,10 @@ const ALIAS_MAP: Record<string, string> = {
 // 匹配如 "500g", "2kg", "5斤" 等格式，提取单位部分
 const WEIGHT_FORMAT_REGEX = /^(\d+(?:\.\d+)?)\s*(g|kg|克|公斤|斤|两|ml|升|毫升|磅|lbs?)$/i;
 
+// ============ 规格格式检测（用于防反检测）============
+// 匹配看起来像"规格"而非"单位"的值：数字+单位组合、"数字x数字"、带斜杠的包装描述
+const SPEC_LIKE_REGEX = /^(\d+(\.\d+)?)\s*(g|kg|克|公斤|斤|两|ml|升|毫升|磅|lbs?)(\/|$)/i;
+
 // ============ 编辑距离（Levenshtein） ============
 function levenshteinDistance(a: string, b: string): number {
   const m = a.length;
@@ -132,6 +136,44 @@ async function getUnitNames(): Promise<string[]> {
   const units = await getAllUnits();
   unitNamesCache = units.map(u => u.name);
   return unitNamesCache;
+}
+
+// ============ 单位↔规格 防反检测 ============
+
+/**
+ * 检测并修复 OCR 导致的 unit↔specification 字段互换
+ * 典型案例：绣球菌 unit="0.4kg" spec="盒" → 应该是 unit="盒" spec="0.4kg"
+ * 判断条件：unit 像规格（数字+重量单位）AND specification 像单位（标准单位名或 OCR 变体）
+ */
+export async function detectAndFixUnitSpecSwap(items: ProcurementItem[]): Promise<ProcurementItem[]> {
+  if (!items || items.length === 0) return items;
+
+  const validUnits = await getUnitNames();
+  const result: ProcurementItem[] = [];
+
+  for (const item of items) {
+    const unit = (item.unit || '').trim();
+    const spec = (item.specification || '').trim();
+
+    if (unit && spec && SPEC_LIKE_REGEX.test(unit) && isLikelyUnitName(spec, validUnits)) {
+      console.log(`[单位防反] "${item.name}": unit="${unit}" ↔ spec="${spec}" → 交换`);
+      result.push({ ...item, unit: spec, specification: unit });
+    } else {
+      result.push({ ...item });
+    }
+  }
+
+  return result;
+}
+
+/**
+ * 判断一个字符串是否像单位名（标准单位、OCR 变体、别名）
+ */
+function isLikelyUnitName(s: string, validUnits: string[]): boolean {
+  if (validUnits.includes(s)) return true;
+  if (OCR_ERROR_MAP[s] && OCR_ERROR_MAP[s] !== s) return true;
+  if (ALIAS_MAP[s]) return true;
+  return false;
 }
 
 // ============ 主标准化函数 ============
