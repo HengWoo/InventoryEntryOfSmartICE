@@ -96,7 +96,8 @@ export interface StorePurchasePrice {
   supplier_id?: number;       // 关联 ims_supplier（可为空）
   item_name: string;          // 原始录入名称
   quantity: number;           // 数量
-  unit: string;               // 单位（自由文本）
+  unit: string;               // 单位（文本）
+  unit_id?: number;            // v9.0: 关联 ims_unit（外键）
   unit_price: number | null;  // v5.1: 单价（损耗记录为 null）
   total_amount?: number | null; // v5.1: 总金额（损耗记录为 null）
   receipt_image?: string;     // 收货单图片 URL
@@ -480,6 +481,7 @@ export async function createPurchasePrice(data: StorePurchasePrice): Promise<Sto
       item_name: data.item_name,
       quantity: data.quantity,
       unit: data.unit,
+      unit_id: data.unit_id || null,
       unit_price: data.unit_price,
       total_amount: data.total_amount,
       receipt_image: data.receipt_image || null,
@@ -521,6 +523,7 @@ export async function createPurchasePrices(records: StorePurchasePrice[]): Promi
       item_name: r.item_name,
       quantity: r.quantity,
       unit: r.unit,
+      unit_id: r.unit_id || null,
       unit_price: r.unit_price,
       total_amount: r.total_amount,
       receipt_image: r.receipt_image || null,
@@ -755,6 +758,29 @@ export async function getAllUnitsAsOptions(): Promise<AutocompleteOption[]> {
     value: u.name,
     sublabel: u.code || undefined,
   }));
+}
+
+/**
+ * v9.0: 根据单位ID查找单位选项（用于物料选中后自动填入标准单位）
+ * @param unitId 单位ID
+ * @returns 匹配的单位选项，未找到返回 null
+ */
+export function getUnitOptionById(unitId: number): AutocompleteOption | null {
+  if (!unitsCache) return null;
+  const unit = unitsCache.find(u => u.id === unitId);
+  if (!unit) return null;
+  return { id: unit.id, label: unit.name, value: unit.name, sublabel: unit.code || undefined };
+}
+
+/**
+ * v9.0: 根据产品ID查找产品的 base_unit_id（用于物料选中后自动填入标准单位）
+ * @param productId 产品ID
+ * @returns base_unit_id，未找到返回 undefined
+ */
+export function getProductBaseUnitId(productId: number): number | undefined {
+  if (!productsCache) return undefined;
+  const product = productsCache.find(p => p.id === productId);
+  return product?.base_unit_id;
 }
 
 /**

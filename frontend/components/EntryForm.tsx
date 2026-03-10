@@ -62,7 +62,7 @@ import { saveDraft, loadDraft, clearDraft, getDraftInfo, DraftInfo, EntryDraft }
 import { useAuth } from '../contexts/AuthContext';
 import { Icons } from '../constants';
 import { GlassCard, Button, Input, AutocompleteInput } from './ui';
-import { searchSuppliers, searchProducts, searchUnits, getAllProductsAsOptions, getAllSuppliersAsOptions, getAllUnitsAsOptions, matchUnit, exactMatchProduct } from '../services/supabaseService';
+import { searchSuppliers, searchProducts, searchUnits, getAllProductsAsOptions, getAllSuppliersAsOptions, getAllUnitsAsOptions, matchUnit, exactMatchProduct, getUnitOptionById, getProductBaseUnitId } from '../services/supabaseService';
 import type { AutocompleteOption } from '../services/supabaseService';
 import { standardizeUnitsInItems } from '../services/unitStandardizationService';
 
@@ -1822,13 +1822,26 @@ export const EntryForm: React.FC<EntryFormProps> = ({ onSave, userName, userNick
   };
 
   // 产品选择回调 - 同时设置 name 和 productId，避免 React 状态竞态问题
+  // v9.0: 选中物料后自动填入标准单位（base_unit_id）
   const handleProductSelect = (index: number, option: AutocompleteOption) => {
     const newItems = [...items];
-    newItems[index] = {
+    const updatedItem = {
       ...newItems[index],
       name: option.value,
       productId: option.id as number
     };
+
+    // v9.0: 自动填入标准单位（仅当单位为空时）
+    const baseUnitId = getProductBaseUnitId(option.id as number);
+    if (baseUnitId && !updatedItem.unit) {
+      const unitOption = getUnitOptionById(baseUnitId);
+      if (unitOption) {
+        updatedItem.unit = unitOption.value;
+        updatedItem.unitId = unitOption.id as number;
+      }
+    }
+
+    newItems[index] = updatedItem;
     setItems(newItems);
     // v6.1: 选择后清除验证错误
     setMaterialValidationErrors(prev => {

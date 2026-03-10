@@ -276,6 +276,7 @@ export async function submitProcurement(
       item_name: item.name,
       quantity: item.quantity || 1,
       unit: item.unit,
+      unit_id: item.unitId || undefined,  // v9.0: 写入单位外键
       unit_price: isWastage ? null : item.unitPrice,
       total_amount: isWastage ? null : (item.total || (item.quantity * item.unitPrice)),
       // v3.3: 多张收货单图片存为 JSON 数组
